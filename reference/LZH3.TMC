@@ -1,0 +1,1161 @@
+V1	C	#4155
+T2	I
+T3	I
+V4	I	#4097
+V5	I	#4353
+V6	I	#4097
+YInitTree	I	F
+{
+A7	R
+A8	I
+	A7	Grson	#4096	#1	+I	RI	#I	*R	'	a	:R	A8	#256	:I	,
+	d
+	j	L9	A8	#1	;-I	#0	!I	n
+	A7	#I	;+R	@	#4096	:I
+L10
+	b
+L9
+	A7	Gdad	a	:R	A8	#4096	:I	,
+	d
+	j	L11	A8	#1	;-I	#0	!I	n
+	A7	#I	;+R	@	#4096	:I
+L12
+	b
+L11
+}
+YInsertNode	I	F
+P13	I
+{
+A14	I
+A15	I
+A16	I
+A17	R
+A18	N
+	A16	#1	:I
+	A17	Gtext_buf	P13	RI	#C	*R	'	a	:R
+	A15	#4096	#1	+I	A17	@	#0	RI	#C	*R	'	IC	+I	:I
+	Grson	P13	RI	#I	*R	'	Glson	P13	RI	#I	*R	'	#4096	:I	:I
+	T3	#0	:I
+	d
+	j	L21	A16	#0	]I	n
+	j	L22	Grson	A15	RI	#I	*R	'	#4096	!I	n
+	A15	Grson	A15	RI	#I	*R	'	:I
+	j	L23
+L22
+	Grson	A15	RI	#I	*R	'	P13	:I
+	j	L24
+L23
+	j	L25
+L21
+	j	L26	Glson	A15	RI	#I	*R	'	#4096	!I	n
+	A15	Glson	A15	RI	#I	*R	'	:I
+	j	L27
+L26
+	Glson	A15	RI	#I	*R	'	P13	:I
+L24
+	Gdad	P13	RI	#I	*R	'	A15	:I
+	y
+L27
+L25
+	A14	#1	:I
+	d
+	j	L28	A14	#60	<I	n
+	j	L30	A16	A17	@	A14	RI	#C	*R	'	IC	Gtext_buf	A15	A14	+I	RI	#C	*R	'	IC	-I	:I	#0	!I	n
+	j	L28
+L30
+L29
+	A14	#1	;+I
+	b
+L28
+	j	L31	A14	#2	>I	n
+	j	L32	A14	T3	>I	n
+	T2	P13	A15	-I	#4096	#1	-I	&I	#1	-I	:I
+	j	L33	T3	A14	:I	#60	]I	n
+	j	L19
+L33
+L32
+	j	L34	A14	T3	=I	n
+	j	L35	A18	P13	A15	-I	#4096	#1	-I	&I	#1	-I	NI	:N	T2	NI	<N	n
+	T2	A18	IN	:I
+L35
+L34
+L31
+L20
+	b
+L19
+	Gdad	P13	RI	#I	*R	'	Gdad	A15	RI	#I	*R	'	:I
+	Gdad	Glson	P13	RI	#I	*R	'	Glson	A15	RI	#I	*R	'	:I	RI	#I	*R	'	P13	:I
+	Gdad	Grson	P13	RI	#I	*R	'	Grson	A15	RI	#I	*R	'	:I	RI	#I	*R	'	P13	:I
+	j	L36	Grson	A14	Gdad	A15	RI	#I	*R	'	:I	RI	#I	*R	'	A15	=I	n
+	Grson	A14	RI	#I	*R	'	P13	:I
+	j	L37
+L36
+	Glson	A14	RI	#I	*R	'	P13	:I
+L37
+	Gdad	A15	RI	#I	*R	'	#4096	:I
+}
+YDeleteNode	I	F
+P38	I
+{
+A39	I
+A40	I
+	j	L41	Gdad	P38	RI	#I	*R	'	#4096	=I	n
+	y
+L41
+	j	L42	Grson	P38	RI	#I	*R	'	#4096	=I	n
+	A39	Glson	P38	RI	#I	*R	'	:I
+	j	L43
+L42
+	j	L44	Glson	P38	RI	#I	*R	'	#4096	=I	n
+	A39	Grson	P38	RI	#I	*R	'	:I
+	j	L45
+L44
+	A39	Glson	P38	RI	#I	*R	'	:I
+	j	L46	Grson	A39	RI	#I	*R	'	#4096	!I	n
+	d
+	A39	Grson	A39	RI	#I	*R	'	:I
+	j	L47	Grson	A39	RI	#I	*R	'	#4096	!I	n
+L48
+	b
+L47
+	Gdad	Grson	Gdad	A39	RI	#I	*R	'	RI	#I	*R	'	Glson	A39	RI	#I	*R	'	:I	RI	#I	*R	'	Gdad	A39	RI	#I	*R	'	:I
+	Gdad	Glson	A39	RI	#I	*R	'	Glson	P38	RI	#I	*R	'	:I	RI	#I	*R	'	A39	:I
+L46
+	Gdad	Grson	A39	RI	#I	*R	'	Grson	P38	RI	#I	*R	'	:I	RI	#I	*R	'	A39	:I
+L45
+L43
+	j	L49	Grson	A40	Gdad	A39	RI	#I	*R	'	Gdad	P38	RI	#I	*R	'	:I	:I	RI	#I	*R	'	P38	=I	n
+	Grson	A40	RI	#I	*R	'	A39	:I
+	j	L50
+L49
+	Glson	A40	RI	#I	*R	'	A39	:I
+L50
+	Gdad	P38	RI	#I	*R	'	#4096	:I
+}
+T52	(
+	C	#3	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+)
+V51	C	#64
+T54	(
+	C	#0	CI
+	C	#32	CI
+	C	#48	CI
+	C	#64	CI
+	C	#80	CI
+	C	#88	CI
+	C	#96	CI
+	C	#104	CI
+	C	#112	CI
+	C	#120	CI
+	C	#128	CI
+	C	#136	CI
+	C	#144	CI
+	C	#148	CI
+	C	#152	CI
+	C	#156	CI
+	C	#160	CI
+	C	#164	CI
+	C	#168	CI
+	C	#172	CI
+	C	#176	CI
+	C	#180	CI
+	C	#184	CI
+	C	#188	CI
+	C	#192	CI
+	C	#194	CI
+	C	#196	CI
+	C	#198	CI
+	C	#200	CI
+	C	#202	CI
+	C	#204	CI
+	C	#206	CI
+	C	#208	CI
+	C	#210	CI
+	C	#212	CI
+	C	#214	CI
+	C	#216	CI
+	C	#218	CI
+	C	#220	CI
+	C	#222	CI
+	C	#224	CI
+	C	#226	CI
+	C	#228	CI
+	C	#230	CI
+	C	#232	CI
+	C	#234	CI
+	C	#236	CI
+	C	#238	CI
+	C	#240	CI
+	C	#241	CI
+	C	#242	CI
+	C	#243	CI
+	C	#244	CI
+	C	#245	CI
+	C	#246	CI
+	C	#247	CI
+	C	#248	CI
+	C	#249	CI
+	C	#250	CI
+	C	#251	CI
+	C	#252	CI
+	C	#253	CI
+	C	#254	CI
+	C	#255	CI
+)
+V53	C	#64
+T56	(
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#0	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#1	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#2	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#9	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#10	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#11	CI
+	C	#12	CI
+	C	#12	CI
+	C	#12	CI
+	C	#12	CI
+	C	#13	CI
+	C	#13	CI
+	C	#13	CI
+	C	#13	CI
+	C	#14	CI
+	C	#14	CI
+	C	#14	CI
+	C	#14	CI
+	C	#15	CI
+	C	#15	CI
+	C	#15	CI
+	C	#15	CI
+	C	#16	CI
+	C	#16	CI
+	C	#16	CI
+	C	#16	CI
+	C	#17	CI
+	C	#17	CI
+	C	#17	CI
+	C	#17	CI
+	C	#18	CI
+	C	#18	CI
+	C	#18	CI
+	C	#18	CI
+	C	#19	CI
+	C	#19	CI
+	C	#19	CI
+	C	#19	CI
+	C	#20	CI
+	C	#20	CI
+	C	#20	CI
+	C	#20	CI
+	C	#21	CI
+	C	#21	CI
+	C	#21	CI
+	C	#21	CI
+	C	#22	CI
+	C	#22	CI
+	C	#22	CI
+	C	#22	CI
+	C	#23	CI
+	C	#23	CI
+	C	#23	CI
+	C	#23	CI
+	C	#24	CI
+	C	#24	CI
+	C	#25	CI
+	C	#25	CI
+	C	#26	CI
+	C	#26	CI
+	C	#27	CI
+	C	#27	CI
+	C	#28	CI
+	C	#28	CI
+	C	#29	CI
+	C	#29	CI
+	C	#30	CI
+	C	#30	CI
+	C	#31	CI
+	C	#31	CI
+	C	#32	CI
+	C	#32	CI
+	C	#33	CI
+	C	#33	CI
+	C	#34	CI
+	C	#34	CI
+	C	#35	CI
+	C	#35	CI
+	C	#36	CI
+	C	#36	CI
+	C	#37	CI
+	C	#37	CI
+	C	#38	CI
+	C	#38	CI
+	C	#39	CI
+	C	#39	CI
+	C	#40	CI
+	C	#40	CI
+	C	#41	CI
+	C	#41	CI
+	C	#42	CI
+	C	#42	CI
+	C	#43	CI
+	C	#43	CI
+	C	#44	CI
+	C	#44	CI
+	C	#45	CI
+	C	#45	CI
+	C	#46	CI
+	C	#46	CI
+	C	#47	CI
+	C	#47	CI
+	C	#48	CI
+	C	#49	CI
+	C	#50	CI
+	C	#51	CI
+	C	#52	CI
+	C	#53	CI
+	C	#54	CI
+	C	#55	CI
+	C	#56	CI
+	C	#57	CI
+	C	#58	CI
+	C	#59	CI
+	C	#60	CI
+	C	#61	CI
+	C	#62	CI
+	C	#63	CI
+)
+V55	C	#256
+T58	(
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#3	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#4	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#5	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#6	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#7	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+	C	#8	CI
+)
+V57	C	#256
+V59	N	#628
+V60	I	#941
+V61	I	#627
+T62	N
+T63	C
+Y_GetBit	I	F
+P64	C
+{
+A65	N
+	d
+	j	L67	T63	#8	CI	[C	n
+	j	L68	A65	Xgetc	cI	F0	NI	:N	IN	#1	_I	=I	n
+	j	L67
+L68
+	T62	A65	#8	CI	T63	-C	NC	lN	:|N
+	T63	#8	CI	:+C
+L66
+	b
+L67
+	A65	T62	:N
+	j	L69	P64	#0	!C	n
+	T62	#8	NI	:lN
+	T63	#8	CI	:-C
+	yI	A65	#8	NI	rN	IN
+	j	L70
+L69
+	T62	#1	NI	:lN
+	T63	#1	:-C
+	yI	A65	IN	#0	<I	#1	#0	?I
+L70
+}
+T71	N
+T72	C
+YPutcode	I	F
+P73	I
+P74	N
+{
+	T71	P74	T72	NC	rN	:|N
+	j	L75	T72	P73	CI	:+C	#8	CI	]C	n
+	Xputc	T71	#8	NI	rN	pN	cI	F1
+	j	L76	T72	#8	CI	:-C	#8	CI	]C	n
+	Xputc	T71	pN	cI	F1
+	T72	#8	CI	:-C
+	T71	P74	P73	T72	IC	-I	NI	lN	:N
+	j	L77
+L76
+	T71	#8	NI	:lN
+L77
+L75
+}
+YStartHuff	I	F
+{
+A78	I
+A79	I
+	A78	#0	:I
+	d
+	j	L80	A78	#256	#2	-I	#60	+I	<I	n
+	Gfreq	A78	RI	#N	*R	'	#1	NI	:N
+	Gson	A78	RI	#I	*R	'	A78	#256	#2	-I	#60	+I	#2	*I	#1	-I	+I	:I
+	Gprnt	A78	#256	#2	-I	#60	+I	#2	*I	#1	-I	+I	RI	#I	*R	'	A78	:I
+L81
+	A78	#1	;+I
+	b
+L80
+	A78	#0	:I
+	A79	#256	#2	-I	#60	+I	:I
+	d
+	j	L83	A79	#256	#2	-I	#60	+I	#2	*I	#1	-I	#1	-I	[I	n
+	Gfreq	A79	RI	#N	*R	'	Gfreq	A78	RI	#N	*R	'	Gfreq	A78	#1	+I	RI	#N	*R	'	+N	:N
+	Gson	A79	RI	#I	*R	'	A78	:I
+	Gprnt	A78	RI	#I	*R	'	Gprnt	A78	#1	+I	RI	#I	*R	'	A79	:I	:I
+	A78	#2	:+I
+	A79	#1	;+I
+L82
+	b
+L83
+	Gfreq	#256	#2	-I	#60	+I	#2	*I	#1	-I	RI	#N	*R	'	#65535	:N
+	Gprnt	#256	#2	-I	#60	+I	#2	*I	#1	-I	#1	-I	RI	#I	*R	'	#0	:I
+}
+Yreconst	I	F
+{
+A84	I
+A85	I
+A86	I
+A87	N
+A88	N
+	A85	#0	:I
+	A84	#0	:I
+	d
+	j	L89	A84	#256	#2	-I	#60	+I	#2	*I	#1	-I	<I	n
+	j	L91	Gson	A84	RI	#I	*R	'	#256	#2	-I	#60	+I	#2	*I	#1	-I	]I	n
+	Gfreq	A85	RI	#N	*R	'	Gfreq	A84	RI	#N	*R	'	#1	NI	+N	#2	NI	/N	:N
+	Gson	A85	RI	#I	*R	'	Gson	A84	RI	#I	*R	'	:I
+	A85	#1	;+I
+L91
+L90
+	A84	#1	;+I
+	b
+L89
+	A84	#0	:I	A85	#256	#2	-I	#60	+I	:I	,
+	d
+	j	L92	A85	#256	#2	-I	#60	+I	#2	*I	#1	-I	<I	n
+	A86	A84	#1	+I	:I
+	A87	Gfreq	A85	RI	#N	*R	'	Gfreq	A84	RI	#N	*R	'	Gfreq	A86	RI	#N	*R	'	+N	:N	:N
+	A86	A85	#1	-I	:I
+	d
+	j	L94	A87	Gfreq	A86	RI	#N	*R	'	<N	n
+L95
+	A86	#1	;-I
+	b
+L94
+	A86	#1	;+I
+	A88	A85	A86	-I	#2	*I	NI	:N
+	Xmemmove	Gfreq	A86	#1	+I	RI	#N	*R	'	a	pR	Gfreq	A86	RI	#N	*R	'	a	pR	A88	pN	cC	F3
+	Gfreq	A86	RI	#N	*R	'	A87	:N
+	Xmemmove	Gson	A86	#1	+I	RI	#I	*R	'	a	pR	Gson	A86	RI	#I	*R	'	a	pR	A88	pN	cC	F3
+	Gson	A86	RI	#I	*R	'	A84	:I
+L93
+	A84	#2	:+I	A85	#1	;+I	,
+	b
+L92
+	A84	#0	:I
+	d
+	j	L96	A84	#256	#2	-I	#60	+I	#2	*I	#1	-I	<I	n
+	j	L98	A86	Gson	A84	RI	#I	*R	'	:I	#256	#2	-I	#60	+I	#2	*I	#1	-I	]I	n
+	Gprnt	A86	RI	#I	*R	'	A84	:I
+	j	L99
+L98
+	Gprnt	A86	RI	#I	*R	'	Gprnt	A86	#1	+I	RI	#I	*R	'	A84	:I	:I
+L99
+L97
+	A84	#1	;+I
+	b
+L96
+}
+Yupdate	I	F
+P100	I
+{
+A101	I
+A102	I
+A103	I
+A104	I
+	j	L105	Gfreq	#256	#2	-I	#60	+I	#2	*I	#1	-I	#1	-I	RI	#N	*R	'	#32768	=N	n
+	Yreconst	cI	F0
+L105
+	P100	Gprnt	P100	#256	#2	-I	#60	+I	#2	*I	#1	-I	+I	RI	#I	*R	'	:I
+	d
+	A103	Gfreq	P100	RI	#N	*R	'	#1	:+N	IN	:I
+	j	L108	A103	NI	Gfreq	A104	P100	#1	+I	:I	RI	#N	*R	'	>N	n
+	d
+	j	L110	A103	NI	Gfreq	A104	#1	:+I	RI	#N	*R	'	>N	n
+L109
+	b
+L110
+	A104	#1	;-I
+	Gfreq	P100	RI	#N	*R	'	Gfreq	A104	RI	#N	*R	'	:N
+	Gfreq	A104	RI	#N	*R	'	A103	NI	:N
+	A101	Gson	P100	RI	#I	*R	'	:I
+	Gprnt	A101	RI	#I	*R	'	A104	:I
+	j	L111	A101	#256	#2	-I	#60	+I	#2	*I	#1	-I	<I	n
+	Gprnt	A101	#1	+I	RI	#I	*R	'	A104	:I
+L111
+	A102	Gson	A104	RI	#I	*R	'	:I
+	Gson	A104	RI	#I	*R	'	A101	:I
+	Gprnt	A102	RI	#I	*R	'	P100	:I
+	j	L112	A102	#256	#2	-I	#60	+I	#2	*I	#1	-I	<I	n
+	Gprnt	A102	#1	+I	RI	#I	*R	'	P100	:I
+L112
+	Gson	P100	RI	#I	*R	'	A102	:I
+	P100	A104	:I
+L108
+	j	L106	P100	Gprnt	P100	RI	#I	*R	'	:I	#0	!I	n
+L107
+	b
+L106
+}
+YEncodeChar	I	F
+P113	N
+{
+A114	N
+A115	I
+A116	I
+	A114	A115	#0	:I	NI	:N
+	A116	Gprnt	P113	#256	#2	-I	#60	+I	#2	*I	#1	-I	NI	+N	RN	#I	*R	'	:I
+	d
+	A114	#1	NI	:rN
+	j	L119	A116	#1	&I	#0	!I	n
+	A114	#32768	:+N
+L119
+	A115	#1	;+I
+	j	L117	A116	Gprnt	A116	RI	#I	*R	'	:I	#256	#2	-I	#60	+I	#2	*I	#1	-I	#1	-I	!I	n
+L118
+	b
+L117
+	YPutcode	A115	pI	A114	pN	cI	F2
+	Yupdate	P113	pN	cI	F1
+}
+YEncodePosition	I	F
+P120	N
+{
+A121	N
+	A121	P120	#6	NI	rN	:N
+	YPutcode	T52	A121	RN	#C	*R	'	IC	pI	T54	A121	RN	#C	*R	'	NC	#8	NI	lN	pN	cI	F2
+	YPutcode	#6	pI	P120	#63	NI	&N	#10	NI	lN	pN	cI	F2
+}
+YEncodeEnd	I	F
+{
+	j	L122	T72	#0	!C	n
+	Xputc	T71	#8	NI	rN	pN	cI	F1
+L122
+}
+YDecodeChar	I	F
+{
+A123	N
+	A123	Gson	#256	#2	-I	#60	+I	#2	*I	#1	-I	#1	-I	RI	#I	*R	'	NI	:N
+	d
+	j	L125	A123	#256	#2	-I	#60	+I	#2	*I	#1	-I	NI	<N	n
+	A123	Y_GetBit	#0	CI	pC	cI	F1	NI	:+N
+	A123	Gson	A123	RN	#I	*R	'	NI	:N
+L124
+	b
+L125
+	A123	#256	#2	-I	#60	+I	#2	*I	#1	-I	NI	:-N
+	Yupdate	A123	pN	cI	F1
+	yI	A123	IN
+}
+YDecodePosition	I	F
+{
+A126	N
+A127	N
+A128	N
+	A126	Y_GetBit	#1	CI	pC	cI	F1	NI	:N
+	A128	T56	A126	RN	#C	*R	'	NC	#6	NI	lN	:N
+	A127	T58	A126	RN	#C	*R	'	#2	CI	-C	NC	:N
+	d
+	j	L130	A127	#1	;-N	#0	!N	n
+	A126	A126	#1	NI	lN	Y_GetBit	#0	CI	pC	cI	F1	NI	+N	:N
+L129
+	b
+L130
+	A128	A126	#63	NI	&N	:|N
+	yI	A128	IN
+}
+XEncode	C	F
+{
+A131	I
+A132	I
+A133	I
+A134	I
+A135	I
+A136	I
+	YStartHuff	cI	F0
+	YInitTree	cI	F0
+	T71	T72	#0	CI	:C	NC	:N
+	A135	#0	:I
+	A134	#4096	#60	-I	:I
+	A131	A135	:I
+	d
+	j	L137	A131	A134	<I	n
+	Gtext_buf	A131	RI	#C	*R	'	#32	:C
+L138
+	A131	#1	;+I
+	b
+L137
+	A133	#0	:I
+	d
+	j	L139	A133	#60	<I	A132	Xgetc	cI	F0	:I	#1	_I	!I	m	n
+	Gtext_buf	A134	A133	+I	RI	#C	*R	'	A132	CI	:C
+L140
+	A133	#1	;+I
+	b
+L139
+	Xencount	A133	pI	cC	F1
+	A131	#1	:I
+	d
+	j	L141	A131	#60	[I	n
+	YInsertNode	A134	A131	-I	pI	cI	F1
+L142
+	A131	#1	;+I
+	b
+L141
+	YInsertNode	A134	pI	cI	F1
+	d
+	j	L145	T3	A133	>I	n
+	T3	A133	:I
+L145
+	j	L146	T3	#2	[I	n
+	T3	#1	:I
+	YEncodeChar	Gtext_buf	A134	RI	#C	*R	'	IC	pI	cI	F1
+	j	L147
+L146
+	YEncodeChar	#255	#2	-I	T3	+I	pI	cI	F1
+	YEncodePosition	T2	pI	cI	F1
+L147
+	A136	T3	:I
+	A131	#0	:I
+	d
+	j	L148	A131	A136	<I	A132	Xgetc	cI	F0	:I	#1	_I	!I	m	n
+	YDeleteNode	A135	pI	cI	F1
+	Gtext_buf	A135	RI	#C	*R	'	A132	CI	:C
+	j	L150	A135	#60	#1	-I	<I	n
+	Gtext_buf	A135	#4096	+I	RI	#C	*R	'	A132	CI	:C
+L150
+	A135	A135	#1	+I	#4096	#1	-I	&I	:I
+	A134	A134	#1	+I	#4096	#1	-I	&I	:I
+	YInsertNode	A134	pI	cI	F1
+L149
+	A131	#1	;+I
+	b
+L148
+	Xencount	A131	pI	cC	F1
+	d
+	j	L152	A131	#1	;+I	A136	<I	n
+	YDeleteNode	A135	pI	cI	F1
+	A135	A135	#1	+I	#4096	#1	-I	&I	:I
+	A134	A134	#1	+I	#4096	#1	-I	&I	:I
+	j	L153	A133	#1	:-I	#0	!I	n
+	YInsertNode	A134	pI	cI	F1
+L153
+L151
+	b
+L152
+	j	L143	A133	#0	>I	n
+L144
+	b
+L143
+	YEncodeEnd	cI	F0
+}
+XDecode	C	F
+{
+A154	I
+A155	I
+A156	I
+A157	I
+A158	I
+	YStartHuff	cI	F0
+	T62	T63	#0	CI	:C	NC	:N
+	A154	#0	:I
+	d
+	j	L159	A154	#4096	#60	-I	<I	n
+	Gtext_buf	A154	RI	#C	*R	'	#32	:C
+L160
+	A154	#1	;+I
+	b
+L159
+	A157	#4096	#60	-I	:I
+	d
+	j	L162	Xdecount	cC	F0	#0	!C	T63	#0	!C	s	n
+	A158	YDecodeChar	cI	F0	:I
+	j	L163	A158	#256	<I	n
+	Xputc	A158	pI	cI	F1
+	Gtext_buf	A157	#1	;+I	RI	#C	*R	'	A158	CI	:C
+	A157	#4096	#1	-I	:&I
+	Xdeinc	cC	F0
+	j	L164
+L163
+	A154	A157	YDecodePosition	cI	F0	-I	#1	-I	#4096	#1	-I	&I	:I
+	A155	A158	#255	-I	#2	+I	:I
+	A156	#0	:I
+	d
+	j	L165	A156	A155	<I	n
+	A158	Gtext_buf	A154	A156	+I	#4096	#1	-I	&I	RI	#C	*R	'	IC	:I
+	Xputc	A158	pI	cI	F1
+	Gtext_buf	A157	#1	;+I	RI	#C	*R	'	A158	CI	:C
+	A157	#4096	#1	-I	:&I
+	Xdeinc	cC	F0
+L166
+	A156	#1	;+I
+	b
+L165
+L164
+L161
+	b
+L162
+}

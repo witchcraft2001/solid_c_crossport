@@ -1,0 +1,490 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gerrno	C
+S7	(
+M8	N
+M9	N
+)
+S10	(
+M11	N
+M12	I
+M13	R
+M14	I
+M15	R
+M16	C
+M17	I
+M18	C
+)
+S20	(
+M21	N
+M22	N
+M23	N
+M24	N
+M25	N
+M26	N
+)
+S27	(
+M28	C
+M29	C
+M30	C
+M31	C
+M32	C
+M33	C
+M34	C
+M35	C
+)
+U36	(
+M37	S20
+M38	S27
+)
+S39	(
+M40	C
+M41	C
+M42	C
+M43	C
+)
+S44	(
+M45	I
+M46	C
+M47	C
+)
+V49	C	#8
+V51	C	#3
+V54	C	#10
+V62	C	#223
+S48	(
+M50	V49
+M52	V51
+M53	C
+M55	V54
+M56	N
+M57	N
+M58	N
+M59	N
+M60	N
+M61	C
+M63	V62
+)
+G_t0	N
+Xtimer_start	C	F	E
+{
+A64	S39
+A65	N
+A66	N
+A67	C
+	Xgettime	A64	a	pR	cC	F1
+	A67	A64	M43	.	:C
+	d
+	Xgettime	A64	a	pR	cC	F1
+	j	L68	A64	M43	.	A67	=C	n
+L69
+	b
+L68
+	A65	A64	M40	.	NC	:N
+	A66	A64	M43	.	NC	:N
+	G_t0	A65	#60	NI	*N	A66	+N	:N
+}
+Xtimer_elapsed	N	F	E
+{
+A70	S39
+A71	N
+A72	N
+A73	N
+	Xgettime	A70	a	pR	cC	F1
+	A71	A70	M40	.	NC	:N
+	A72	A70	M43	.	NC	:N
+	A73	A71	#60	NI	*N	A72	+N	:N
+	j	L74	A73	G_t0	<N	n
+	A73	A73	#3600	NI	+N	:N
+L74
+	yN	A73	G_t0	-N
+}
+Grng	C
+Xrng_seed	C	F	E
+P75	C
+{
+	Grng	P75	:C
+}
+Xrng_next	C	F	E
+{
+	Grng	Grng	#5	CI	*C	#1	CI	+C	:C
+	yC	Grng
+}
+V76	C	#1000
+Gsieve	V76
+V77	C	#256
+Garr	V77
+V78	C	#256
+Gdata	V78
+V79	C	#256
+Grc4_s	V79
+Xbench_sieve	N	F	E
+P80	I
+{
+A81	N
+A82	N
+A83	N
+A84	N
+A85	I
+	A85	#0	:I
+	d
+	j	L86	A85	P80	<I	n
+	A81	#0	NI	:N
+	d
+	j	L88	A81	#1000	NI	<N	n
+	Gsieve	A81	RN	#C	*R	'	#1	CI	:C
+L89
+	A81	#1	;+N
+	b
+L88
+	Gsieve	#0	RI	#C	*R	'	#0	CI	:C
+	Gsieve	#1	RI	#C	*R	'	#0	CI	:C
+	A81	#2	NI	:N
+	d
+	j	L90	A81	#32	NI	<N	n
+	j	L92	Gsieve	A81	RN	#C	*R	'	#0	!C	n
+	A82	A81	A81	*N	:N
+	d
+	j	L94	A82	#1000	NI	<N	n
+	Gsieve	A82	RN	#C	*R	'	#0	CI	:C
+	A82	A82	A81	+N	:N
+L93
+	b
+L94
+L92
+L91
+	A81	#1	;+N
+	b
+L90
+L87
+	A85	#1	;+I
+	b
+L86
+	A84	#0	NI	:N
+	A81	#0	NI	:N
+	d
+	j	L95	A81	#1000	NI	<N	n
+	j	L97	Gsieve	A81	RN	#C	*R	'	#0	!C	n
+	A84	A84	#1	NI	+N	:N
+L97
+L96
+	A81	#1	;+N
+	b
+L95
+	yN	A84
+}
+Xbench_bubble	N	F	E
+P98	I
+{
+A99	I
+A100	I
+A101	I
+A102	C
+A103	C
+	A99	#0	:I
+	d
+	j	L104	A99	P98	<I	n
+	Xrng_seed	#66	pI	cC	F1
+	A100	#0	:I
+	d
+	j	L106	A100	#256	<I	n
+	Garr	A100	RI	#C	*R	'	Xrng_next	cC	F0	:C
+L107
+	A100	#1	;+I
+	b
+L106
+	A100	#0	:I
+	d
+	j	L108	A100	#255	<I	n
+	A101	#0	:I
+	d
+	j	L110	A101	#255	A100	-I	<I	n
+	j	L112	Garr	A101	RI	#C	*R	'	Garr	A101	#1	+I	RI	#C	*R	'	>C	n
+	A102	Garr	A101	RI	#C	*R	'	:C
+	Garr	A101	RI	#C	*R	'	Garr	A101	#1	+I	RI	#C	*R	'	:C
+	Garr	A101	#1	+I	RI	#C	*R	'	A102	:C
+L112
+L111
+	A101	#1	;+I
+	b
+L110
+L109
+	A100	#1	;+I
+	b
+L108
+L105
+	A99	#1	;+I
+	b
+L104
+	A103	#0	CI	:C
+	A100	#0	:I
+	d
+	j	L113	A100	#256	<I	n
+	A103	A103	Garr	A100	RI	#C	*R	'	+C	:C
+L114
+	A100	#1	;+I
+	b
+L113
+	yN	A103	NC
+}
+Xbench_shell	N	F	E
+P115	I
+{
+A116	I
+A117	I
+A118	I
+A119	I
+A120	C
+A121	C
+	A116	#0	:I
+	d
+	j	L122	A116	P115	<I	n
+	Xrng_seed	#66	pI	cC	F1
+	A117	#0	:I
+	d
+	j	L124	A117	#256	<I	n
+	Garr	A117	RI	#C	*R	'	Xrng_next	cC	F0	:C
+L125
+	A117	#1	;+I
+	b
+L124
+	A119	#128	:I
+	d
+	j	L127	A119	#0	>I	n
+	A117	A119	:I
+	d
+	j	L128	A117	#256	<I	n
+	A120	Garr	A117	RI	#C	*R	'	:C
+	A118	A117	:I
+	d
+	j	L131	A118	A119	]I	n
+	j	L132	Garr	A118	A119	-I	RI	#C	*R	'	A120	>C	n
+	Garr	A118	RI	#C	*R	'	Garr	A118	A119	-I	RI	#C	*R	'	:C
+	A118	A118	A119	-I	:I
+	j	L133
+L132
+	j	L131
+L133
+L130
+	b
+L131
+	Garr	A118	RI	#C	*R	'	A120	:C
+L129
+	A117	#1	;+I
+	b
+L128
+	A119	A119	#2	/I	:I
+L126
+	b
+L127
+L123
+	A116	#1	;+I
+	b
+L122
+	A121	#0	CI	:C
+	A117	#0	:I
+	d
+	j	L134	A117	#256	<I	n
+	A121	A121	Garr	A117	RI	#C	*R	'	+C	:C
+L135
+	A117	#1	;+I
+	b
+L134
+	yN	A121	NC
+}
+Xbench_crc	N	F	E
+P136	I
+{
+A137	N
+A138	N
+A139	I
+A140	C
+A141	C
+	A138	#0	NI	:N
+	d
+	j	L142	A138	#256	NI	<N	n
+	Gdata	A138	RN	#C	*R	'	A138	CN	:C
+L143
+	A138	#1	;+N
+	b
+L142
+	A139	#0	:I
+	d
+	j	L144	A139	P136	<I	n
+	A137	#65535	:N
+	A138	#0	NI	:N
+	d
+	j	L146	A138	#256	NI	<N	n
+	A141	Gdata	A138	RN	#C	*R	'	:C
+	A140	#0	CI	:C
+	d
+	j	L148	A140	#8	CI	<C	n
+	j	L150	A137	A141	NC	^N	#1	NI	&N	#0	!N	n
+	A137	A137	#1	NI	rN	#33800	^N	:N
+	j	L151
+L150
+	A137	A137	#1	NI	rN	:N
+L151
+	A141	A141	#1	CI	rC	:C
+L149
+	A140	#1	;+C
+	b
+L148
+L147
+	A138	#1	;+N
+	b
+L146
+L145
+	A139	#1	;+I
+	b
+L144
+	yN	A137	#65535	^N
+}
+Xbench_rc4	N	F	E
+P152	I
+{
+A153	I
+A154	N
+A155	C
+A156	C
+A157	C
+A158	C
+A159	C
+	A153	#0	:I
+	d
+	j	L160	A153	P152	<I	n
+	A154	#0	NI	:N
+	d
+	j	L162	A154	#256	NI	<N	n
+	Grc4_s	A154	RN	#C	*R	'	A154	CN	:C
+L163
+	A154	#1	;+N
+	b
+L162
+	A156	#0	CI	:C
+	A154	#0	NI	:N
+	d
+	j	L164	A154	#256	NI	<N	n
+	A155	A154	CN	:C
+	A159	A154	#7	NI	*N	#31	NI	+N	CN	:C
+	A156	A156	Grc4_s	A155	RC	#C	*R	'	+C	A159	+C	:C
+	A157	Grc4_s	A155	RC	#C	*R	'	:C
+	Grc4_s	A155	RC	#C	*R	'	Grc4_s	A156	RC	#C	*R	'	:C
+	Grc4_s	A156	RC	#C	*R	'	A157	:C
+L165
+	A154	#1	;+N
+	b
+L164
+	A155	#0	CI	:C
+	A156	#0	CI	:C
+	A154	#0	NI	:N
+	d
+	j	L166	A154	#256	NI	<N	n
+	A155	A155	#1	CI	+C	:C
+	A156	A156	Grc4_s	A155	RC	#C	*R	'	+C	:C
+	A157	Grc4_s	A155	RC	#C	*R	'	:C
+	Grc4_s	A155	RC	#C	*R	'	Grc4_s	A156	RC	#C	*R	'	:C
+	Grc4_s	A156	RC	#C	*R	'	A157	:C
+	A159	Grc4_s	A155	RC	#C	*R	'	Grc4_s	A156	RC	#C	*R	'	+C	:C
+	Gdata	A154	RN	#C	*R	'	Grc4_s	A159	RC	#C	*R	'	:C
+L167
+	A154	#1	;+N
+	b
+L166
+L161
+	A153	#1	;+I
+	b
+L160
+	A158	#0	CI	:C
+	A154	#0	NI	:N
+	d
+	j	L168	A154	#256	NI	<N	n
+	A158	A158	Gdata	A154	RN	#C	*R	'	+C	:C
+L169
+	A154	#1	;+N
+	b
+L168
+	yN	A158	NC
+}
+Xbench_math	N	F	E
+P170	I
+{
+A171	N
+A172	N
+A173	N
+A174	I
+	A172	#0	NI	:N
+	A174	#0	:I
+	d
+	j	L175	A174	P170	<I	n
+	A173	#1	NI	:N
+	A171	#1	NI	:N
+	d
+	j	L177	A171	#1000	NI	[N	n
+	A173	A173	#3	NI	*N	A171	+N	:N
+	A172	A172	A173	+N	:N
+L178
+	A171	#1	;+N
+	b
+L177
+L176
+	A174	#1	;+I
+	b
+L175
+	yN	A172
+}
+Xmain	C	F	E
+{
+A179	N
+A180	N
+A181	N
+	A179	#0	NI	:N
+	Xprintf	"90,56,48,32,66,101,110,99,104,109,97,114,107,32,118,49,46,48,32,40,83,79,76,73,68,32,67,41,10,0"	a	pR	cI	U1
+	Xprintf	"61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,10,10,0"	a	pR	cI	U1
+	Xprintf	"32,32,84,101,115,116,32,32,32,32,32,32,32,32,32,32,82,117,110,115,32,32,67,104,101,99,107,32,32,84,105,109,101,10,0"	a	pR	cI	U1
+	Xprintf	"32,32,45,45,45,45,45,45,45,45,45,45,45,45,32,45,45,45,45,45,32,45,45,45,45,45,45,32,45,45,45,45,45,10,0"	a	pR	cI	U1
+	Xprintf	"32,32,83,105,101,118,101,32,32,32,32,32,32,32,32,120,50,48,48,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_sieve	#200	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,66,117,98,98,108,101,32,115,111,114,116,32,32,120,49,48,32,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_bubble	#10	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,83,104,101,108,108,32,115,111,114,116,32,32,32,120,54,48,32,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_shell	#60	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,67,82,67,45,49,54,32,32,32,32,32,32,32,120,52,48,48,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_crc	#400	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,82,67,52,32,32,32,32,32,32,32,32,32,32,120,53,48,48,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_rc4	#500	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,73,110,116,32,109,97,116,104,32,32,32,32,32,120,50,48,48,32,32,0"	a	pR	cI	U1
+	Xtimer_start	cC	F0
+	A180	Xbench_math	#200	pI	cN	F1	:N
+	A181	Xtimer_elapsed	cN	F0	:N
+	A179	A179	A181	+N	:N
+	Xprintf	"32,37,53,117,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A180	pN	A181	#60	NI	/N	pN	A181	#60	NI	%N	pN	cI	U4
+	Xprintf	"32,32,45,45,45,45,45,45,45,45,45,45,45,45,32,45,45,45,45,45,32,45,45,45,45,45,45,32,45,45,45,45,45,10,0"	a	pR	cI	U1
+	Xprintf	"32,32,84,79,84,65,76,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,37,50,117,58,37,48,50,117,10,0"	a	pR	A179	#60	NI	/N	pN	A179	#60	NI	%N	pN	cI	U3
+}

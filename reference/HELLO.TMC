@@ -1,0 +1,28 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gerrno	C
+S7	(
+M8	N
+M9	N
+)
+S10	(
+M11	N
+M12	I
+M13	R
+M14	I
+M15	R
+M16	C
+M17	I
+M18	C
+)
+Xmain	I	F	E
+{
+	Xprintf	"10,72,101,108,108,111,32,119,111,114,108,100,32,33,10,0"	a	pR	cI	U1
+	Xfprintf	G_iob	#1	_I	RI	#S10	*R	'	a	pR	"143,224,168,162,165,226,32,172,168,224,32,33,10,0"	a	pR	cI	U2
+}
