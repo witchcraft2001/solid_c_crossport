@@ -203,11 +203,30 @@ void rel_output_data_byte(AsmState *as, u8 byte)
  * Mirrors: A1735 in ASM1.ASM */
 void rel_put_word(AsmState *as, u16 value, u8 seg_type)
 {
+    /* Record the address where this word starts (for chain external) */
+    u16 word_addr = as->org_counter;
+
     as->org_counter += 2;
     if (!as->pass2) return;
 
     u8 stype = seg_type & 3;
-    if (stype == 0 && !(seg_type & 0x80)) {
+
+    /* Check if expression referenced an external symbol */
+    if (as->expr_ext_ptr != 0) {
+        /* External reference: output absolute placeholder bytes,
+         * and record the chain address in the external symbol entry */
+        u8 *ext_entry = &as->memory[as->expr_ext_ptr];
+        /* Store chain address: where the linker should patch */
+        ext_entry[6] = word_addr & 0xFF;
+        ext_entry[7] = (word_addr >> 8) & 0xFF;
+        /* Output placeholder (absolute 00 00) */
+        rel_put_absolute_byte(as, value & 0xFF);
+        rel_put_absolute_byte(as, (value >> 8) & 0xFF);
+        as->expr_ext_ptr = 0; /* consumed */
+        return;
+    }
+
+    if (stype == 0) {
         /* Absolute value — output two absolute bytes */
         rel_put_absolute_byte(as, value & 0xFF);
         rel_put_absolute_byte(as, (value >> 8) & 0xFF);
@@ -239,19 +258,21 @@ static void rel_write_extended_header(AsmState *as)
  * Mirrors: A28FE..A290C in ASM1.ASM */
 void rel_finalize(AsmState *as)
 {
-    /* Pad current byte to boundary with zero bits */
+    /* Pad current byte to boundary with zero bits.
+     * Mirrors A28FE: loop putting 0-bits until byte complete. */
     while (as->rel_bitcount != 0xF8) {
         rel_putbit(as, 0);
     }
 
-    /* Write "end file" special item (item 15) */
+    /* Write "end file" special item (item 15): 1 00 1111 = 7 bits */
     rel_put_spec_item(as, 15, 0, 0);
 
-    /* Write 8 more zero bits */
-    rel_put_8bits(as, 0);
+    /* Pad remaining bits to byte boundary with zeros */
+    while (as->rel_bitcount != 0xF8) {
+        rel_putbit(as, 0);
+    }
 
-    /* Flush remaining REL data */
-    /* Write the final partial block with 0xFF terminator */
+    /* Write 0xFF terminator and flush */
     io_write_rel_byte(as, 0xFF);
     io_flush_rel(as);
 }

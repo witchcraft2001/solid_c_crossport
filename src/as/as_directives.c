@@ -372,12 +372,7 @@ static void dir_do_public(AsmState *as)
         /* Mark as public */
         u8 *entry = &as->memory[as->label_ptr];
         entry[5] |= SYM_PUBLIC;
-
-        /* Output PUBLIC item in pass 2 */
-        if (as->pass2) {
-            rel_put_spec_item(as, 6, entry[5] & 0x07,
-                              (u16)entry[6] | ((u16)entry[7] << 8));
-        }
+        /* Entry point items are output by dir_do_end after all code */
 
         /* Check for comma */
         ch = lex_skipspace(as);
@@ -418,11 +413,7 @@ static void dir_do_extern(AsmState *as)
         /* Mark as external */
         u8 *entry = &as->memory[as->label_ptr];
         entry[5] |= SYM_EXTERN;
-
-        /* Output EXTERN item in pass 2 */
-        if (as->pass2) {
-            rel_put_spec_item(as, 7, 0, 0);
-        }
+        /* Chain external items are output by dir_do_end after all code */
 
         ch = lex_skipspace(as);
         if (ch != ',') {
@@ -482,8 +473,13 @@ static void dir_do_name(AsmState *as)
  *  END [start_address]
  * ---------------------------------------------------------------- */
 
+static int end_called_pass2 = 0; /* prevent double finalize */
+
 void dir_do_end(AsmState *as)
 {
+    if (as->pass2 && end_called_pass2) return; /* already finalized */
+    if (as->pass2) end_called_pass2 = 1;
+
     /* Save current segment size */
     save_segment_counter(as);
 
@@ -541,10 +537,57 @@ void dir_do_end(AsmState *as)
         as->expr_seg_type = start_seg;
     } else {
         /* ---- End of Pass 2 ----
-         * Write end program item with entry point
-         * Write end file item
-         * Finalize REL output
+         * After all code output, write:
+         * 1. chain external (item 6) for each EXTRN symbol
+         * 2. define entry point (item 7) for each PUBLIC symbol
+         * 3. end program (item 14) with optional entry point
+         * 4. end file (item 15)
          */
+
+        /* Scan symbol table for EXTERN symbols → chain external (item 6)
+         * The chain address in entry[6,7] was set by expr_evaluate
+         * during pass 2 when the EXTRN symbol was referenced. */
+        {
+            int h;
+            for (h = 0; h < 33; h++) {
+                u16 ptr = as->sym_lookup1[h];
+                while (ptr != 0) {
+                    u8 *entry = &as->memory[ptr];
+                    u8 attr = entry[5];
+                    if (attr & SYM_EXTERN) {
+                        u16 save_lp = as->label_ptr;
+                        as->label_ptr = ptr;
+                        u16 val = (u16)entry[6] | ((u16)entry[7] << 8);
+                        rel_put_spec_item(as, 6, SEG_CSEG, val);
+                        as->label_ptr = save_lp;
+                    }
+                    ptr = (u16)entry[0] | ((u16)entry[1] << 8);
+                }
+            }
+        }
+
+        /* Scan for PUBLIC symbols → define entry point (item 7)
+         * Only locally-defined PUBLIC symbols (not extern). */
+        {
+            int h;
+            for (h = 0; h < 33; h++) {
+                u16 ptr = as->sym_lookup1[h];
+                while (ptr != 0) {
+                    u8 *entry = &as->memory[ptr];
+                    u8 attr = entry[5];
+                    if ((attr & SYM_PUBLIC) && (attr & SYM_DEFINED) &&
+                        !(attr & SYM_EXTERN)) {
+                        u16 save_lp = as->label_ptr;
+                        as->label_ptr = ptr;
+                        u16 val = (u16)entry[6] | ((u16)entry[7] << 8);
+                        u8 seg = attr & 3;
+                        rel_put_spec_item(as, 7, seg, val);
+                        as->label_ptr = save_lp;
+                    }
+                    ptr = (u16)entry[0] | ((u16)entry[1] << 8);
+                }
+            }
+        }
 
         /* End program (item 14) with optional entry point */
         rel_put_spec_item(as, 14, start_seg,

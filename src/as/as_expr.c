@@ -497,6 +497,8 @@ void expr_evaluate(AsmState *as)
     as->expr_flags = 0;
     as->expr_seg_type = 0;
     as->expr_had_value = 0;
+    as->expr_ext_ptr = 0;
+    as->expr_ext_type = 0;
 
     int expect_operand = 1; /* 1 = expecting operand, 0 = expecting operator */
 
@@ -591,6 +593,17 @@ void expr_evaluate(AsmState *as)
                     u16 val = (u16)entry[6] | ((u16)entry[7] << 8);
                     u8 seg = entry[5] & 0x07;
                     u8 attr = entry[5];
+
+                    if (attr & SYM_EXTERN) {
+                        /* External symbol: value is 0 (placeholder).
+                         * Chain address will be recorded later in rel_put_word. */
+                        push_value(0, 0, 0x80); /* flag=0x80 means external */
+                        as->expr_ext_type = attr;
+                        as->expr_ext_ptr = as->label_ptr;
+                        as->expr_had_value = 1;
+                        expect_operand = 0;
+                        continue;
+                    }
 
                     if (!(attr & SYM_DEFINED) && as->pass2) {
                         err_undefined(as);

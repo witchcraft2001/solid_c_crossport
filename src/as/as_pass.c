@@ -272,8 +272,7 @@ void pass_run(AsmState *as)
             }
         }
 
-        /* Scan symbol table for PUBLIC/ENTRY entries (item 0) */
-        /* Walk the hash chains looking for PUBLIC symbols */
+        /* Entry symbols (item 0) for PUBLIC symbols — just the name */
         {
             int h;
             for (h = 0; h < 33; h++) {
@@ -281,15 +280,12 @@ void pass_run(AsmState *as)
                 while (ptr != 0) {
                     u8 *entry = &as->memory[ptr];
                     u8 attr = entry[5];
-                    if (attr & SYM_PUBLIC) {
-                        /* Output entry symbol (item 0) */
+                    if ((attr & SYM_PUBLIC) && !(attr & SYM_EXTERN)) {
                         u16 save_lp = as->label_ptr;
                         as->label_ptr = ptr;
-                        rel_put_spec_item(as, 0, attr & 3,
-                            (u16)entry[6] | ((u16)entry[7] << 8));
+                        rel_put_spec_item(as, 0, 0, 0);
                         as->label_ptr = save_lp;
                     }
-                    /* Follow chain: next at +0 */
                     ptr = (u16)entry[0] | ((u16)entry[1] << 8);
                 }
             }
@@ -310,6 +306,8 @@ void pass_run(AsmState *as)
     /* Reset macro state for this pass */
     macro_reset();
 
+    int end_done = 0; /* set when dir_do_end has been called */
+
     /* Main assembly loop */
     while (!end_seen) {
         /* Read next line: from macro expansion or from file */
@@ -317,15 +315,21 @@ void pass_run(AsmState *as)
             if (!macro_get_line(as)) {
                 /* Macro ended, read from file */
                 if (lex_read_line(as) < 0) {
-                    err_report(as, 'N', "Missing END directive");
-                    dir_do_end(as);
+                    if (!end_done) {
+                        err_report(as, 'N', "Missing END directive");
+                        dir_do_end(as);
+                        end_done = 1;
+                    }
                     break;
                 }
             }
         } else {
             if (lex_read_line(as) < 0) {
-                err_report(as, 'N', "Missing END directive");
-                dir_do_end(as);
+                if (!end_done) {
+                    err_report(as, 'N', "Missing END directive");
+                    dir_do_end(as);
+                    end_done = 1;
+                }
                 break;
             }
         }
@@ -361,6 +365,7 @@ void pass_run(AsmState *as)
                 u8 next = as->linebuf[pos+3];
                 if (next == ' ' || next == '\t' || next == 0x0D || next == ';') {
                     end_seen = 1;
+                    end_done = 1; /* dir_do_end was called via pass_process_line */
                 }
             }
         }

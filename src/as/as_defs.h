@@ -59,7 +59,7 @@
 #define SYM_PUBLIC    0x40
 #define SYM_PASS1DEF  0x20
 #define SYM_MULDEF    0x10
-#define SYM_EXTERN    0x80  /* in byte +0 original */
+#define SYM_EXTERN    0x08  /* external symbol (extrn directive) */
 
 /* Symbol table entry — we use a flat byte array approach for
    byte-exact compatibility, but wrap access in helpers. */
