@@ -25,3 +25,12 @@ add_executable(as
     src/as/as_macro.c
 )
 target_include_directories(as PRIVATE src/as src/common)
+
+# Object Librarian (OL)
+add_executable(ol
+    src/ol/ol_main.c
+    src/ol/ol_io.c
+    src/ol/ol_rel.c
+    src/ol/ol_ops.c
+)
+target_include_directories(ol PRIVATE src/ol src/common)
