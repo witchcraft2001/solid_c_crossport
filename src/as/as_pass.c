@@ -34,10 +34,13 @@ void pass_init(AsmState *as)
     as->org_counter = 0;
     as->seg_type = SEG_CSEG;  /* default segment */
 
-    as->aseg_size = 0;
-    as->cseg_size = 0;
-    as->dseg_size = 0;
-    as->common_size = 0;
+    if (!as->pass2) {
+        /* Only reset sizes on pass 1 */
+        as->aseg_size = 0;
+        as->cseg_size = 0;
+        as->dseg_size = 0;
+        as->common_size = 0;
+    }
 
     as->cond_depth = 0;
     as->cond_false_depth = 0;
@@ -51,12 +54,9 @@ void pass_init(AsmState *as)
     as->label_ptr = 0;
 
     as->org_flag = 0;
+    as->radix = 10;
 
-    /* Reset file position */
-    if (as->f_asm) {
-        fseek(as->f_asm, 0, SEEK_SET);
-        as->asm_ptr = ASM_BUF_SIZE - 1; /* force re-read */
-    }
+    /* File will be opened by pass_run */
 }
 
 /* ----------------------------------------------------------------
@@ -301,18 +301,38 @@ void pass_run(AsmState *as)
             }
         }
 
-        /* Report any errors for this line */
-        if (as->pass2 && as->error_char != ' ') {
-            /* Print error for this line */
-            io_print_char(as->error_char);
-            io_print_char(' ');
-            io_print_str("Error in line ");
-            print_decimal(as->line_number);
-            if (as->error_msg_str) {
-                io_print_str(": ");
-                io_print_str(as->error_msg_str);
+        /* Count and report errors for this line (mirrors A17FA) */
+        if (as->error_char != ' ') {
+            if (as->error_char == 'Q') {
+                /* Warning */
+                as->warning_count++;
+            } else {
+                /* Error */
+                as->error_count++;
             }
-            io_newline();
+
+            /* Print error on pass 2 */
+            if (as->pass2) {
+                io_print_str("line [");
+                print_decimal(as->line_number);
+                io_print_str("]: ?");
+                io_print_char(as->error_char);
+                io_print_char('\t');
+                /* Print the source line */
+                {
+                    int k = 0;
+                    while (as->linebuf[k] != 0x0D && k < LINE_BUF_SIZE) {
+                        io_print_char(as->linebuf[k]);
+                        k++;
+                    }
+                }
+                io_newline();
+                if (as->error_msg_str) {
+                    io_print_str("      ");
+                    io_print_str(as->error_msg_str);
+                    io_newline();
+                }
+            }
         }
     }
 

@@ -83,12 +83,6 @@ static void restore_segment_counter(AsmState *as)
 void dir_do_org(AsmState *as)
 {
     u16 val = expr_eval_simple(as);
-
-    if (as->seg_type != SEG_ASEG) {
-        /* ORG only valid in ASEG */
-        err_report(as, 'N', "ORG valid only in ASEG");
-    }
-
     as->org_counter = val;
     as->org_flag = 1;
 }
@@ -105,7 +99,9 @@ void dir_do_equ(AsmState *as)
         return;
     }
 
+    u16 saved_label = as->label_ptr;
     u16 val = expr_eval_simple(as);
+    as->label_ptr = saved_label;  /* restore after expr may have changed it */
 
     u8 *entry = &as->memory[as->label_ptr];
 
@@ -113,7 +109,7 @@ void dir_do_equ(AsmState *as)
         /* Pass 2: check value matches */
         u16 old_val = (u16)entry[6] | ((u16)entry[7] << 8);
         if (old_val != val) {
-            err_phase(as);
+                err_phase(as);
         }
         entry[6] = val & 0xFF;
         entry[7] = (val >> 8) & 0xFF;

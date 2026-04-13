@@ -24,9 +24,10 @@ void err_report(AsmState *as, char code, const char *msg)
 {
     if (as->error_char == ' ') {
         as->error_char = (u8)code;
+        as->error_msg_str = msg;
     }
-    as->error_msg_str = msg;
-    as->error_count++;
+    /* Note: error_count is incremented at end-of-line in pass_run,
+     * not here. This matches the original A053F behavior. */
 }
 
 void err_out_of_range(AsmState *as)

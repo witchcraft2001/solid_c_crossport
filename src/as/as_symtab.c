@@ -308,7 +308,10 @@ static const KeywordDef keyword_table[] = {
     {"EXITM",   KW_DIRECTIVE, DIR_EXITM,   0x00},
     {"LOCAL",   KW_DIRECTIVE, DIR_LOCAL,   0x00},
     {"INCLUDE", KW_DIRECTIVE, DIR_INCLUDE, 0x00},
-    {"SET",     KW_DIRECTIVE, DIR_SET,     0x00},
+    /* Note: SET is both a Z80 instruction (SET bit,reg) and a
+     * re-definable equate (label SET expr). The Z80 instruction
+     * is handled above as INSTR_SET. The directive form is
+     * detected in pass_process_line when preceded by a label. */
 
     /* Dot-prefixed directives (handled as keywords with '.' prefix removed) */
     {".PHASE",   KW_DIRECTIVE, DIR_PHASE,   0x00},
@@ -364,16 +367,16 @@ static const KeywordDef keyword_table[] = {
     {"P",   KW_CONDITION, CC_P,   0x00},
     {"M",   KW_CONDITION, CC_M,   0x00},
 
-    /* Expression operator keywords */
+    /* Expression operator keywords
+     * Note: AND, OR, XOR are handled as Z80 instructions above.
+     * The expression evaluator handles them specially when parsing
+     * expressions. They are NOT duplicated here to avoid hash collisions. */
     {"NOT",  KW_OPERATOR, OP_NOT,  0x00},
     {"HIGH", KW_OPERATOR, OP_HIGH, 0x00},
     {"LOW",  KW_OPERATOR, OP_LOW,  0x00},
     {"MOD",  KW_OPERATOR, OP_MOD,  0x00},
     {"SHL",  KW_OPERATOR, OP_SHL,  0x00},
     {"SHR",  KW_OPERATOR, OP_SHR,  0x00},
-    {"AND",  KW_OPERATOR, OP_AND,  0x00},
-    {"OR",   KW_OPERATOR, OP_OR,   0x00},
-    {"XOR",  KW_OPERATOR, OP_XOR,  0x00},
     {"EQ",   KW_OPERATOR, OP_EQ,   0x00},
     {"NE",   KW_OPERATOR, OP_NE,   0x00},
     {"LT",   KW_OPERATOR, OP_LT,   0x00},

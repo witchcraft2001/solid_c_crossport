@@ -153,12 +153,10 @@ static void parse_operand(AsmState *as, Operand *op)
         }
 
         /* Not a register — must be an address expression: (nn) */
-        /* Push back and parse expression */
-        /* The token_copy already consumed the identifier, so we need
-         * to handle this carefully */
-        lex_pushback(as);
-        /* Re-parse: the identifier is already in idname.
-         * For now, evaluate expression from current position */
+        /* Rewind past the token we consumed */
+        if (as->line_pos >= as->idlen) {
+            as->line_pos -= as->idlen;
+        }
         expr_evaluate(as);
         op->value = as->expr_saved;
         op->seg_type = as->expr_seg_type;
@@ -202,43 +200,23 @@ static void parse_operand(AsmState *as, Operand *op)
             }
         }
 
-        /* Not a keyword — try as number or symbol via expression */
-        /* Push back and evaluate as expression */
-        /* The token is already consumed; we need to evaluate it.
-         * Since token_copy already read it, we handle it via
-         * the expression evaluator which will re-read. */
-        /* TODO: Proper integration with expression evaluator for
-         * tokens already parsed. For now, attempt number parse. */
-        int valid = 0;
-        /* Try parsing idname as a number */
-        u8 first = as->idname[0];
-        if (first >= '0' && first <= '9') {
-            /* Looks like a number — use expression evaluator from
-             * the position before the token. We'll re-scan. */
-        }
-
-        /* Fall back to expression evaluation */
-        /* Rewind line position past the token and evaluate */
+        /* Not a keyword — rewind and evaluate as expression.
+         * token_copy consumed the token, so we need to rewind
+         * the line position to before the token and call expr_evaluate. */
         {
-            u16 saved_pos = as->line_pos;
-            /* We already consumed the token. Evaluate it. */
-            /* For a simple identifier, look up in symbol table */
-            if (sym_search_user(as)) {
-                u8 *entry = &as->memory[as->label_ptr];
-                op->value = (u16)entry[6] | ((u16)entry[7] << 8);
-                op->seg_type = entry[5] & 0x07;
-            } else {
-                /* Undefined — try as number from idname */
-                /* parse_number is in as_expr.c, we call expr_evaluate */
-                /* For now, set value to 0 */
-                op->value = 0;
-                if (as->pass2) err_undefined(as);
+            /* Rewind: line_pos is after the token. We need to go back
+             * to where the token started. The token has idlen chars,
+             * and skipspace consumed some whitespace before it.
+             * Simplest: rewind by idlen chars. */
+            if (as->line_pos >= as->idlen) {
+                as->line_pos -= as->idlen;
             }
-            (void)saved_pos;
-            (void)valid;
+            expr_evaluate(as);
+            op->value = as->expr_saved;
+            op->seg_type = as->expr_seg_type;
+            op->flags = as->expr_flags;
         }
 
-        /* Determine if it's 8-bit or 16-bit based on context */
         op->type = OPND_EXPR;
         return;
     }
