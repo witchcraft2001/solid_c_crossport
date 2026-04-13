@@ -1,0 +1,21 @@
+# Build
+build/
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated
+*.rel
+*.tmc
+*.err
+*.lst
