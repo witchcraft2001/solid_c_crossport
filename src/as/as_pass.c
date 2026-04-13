@@ -301,6 +301,13 @@ void pass_run(AsmState *as)
 
         /* Set location counter to CSEG:0000 (item 11) */
         rel_put_spec_item(as, 11, SEG_CSEG, 0x0000);
+
+        /* Reset segment counters for pass 2 assembly
+         * (header already written with pass 1 sizes above) */
+        as->aseg_size = 0;
+        as->cseg_size = 0;
+        as->dseg_size = 0;
+        as->common_size = 0;
     }
 
     /* Reset macro state for this pass */
