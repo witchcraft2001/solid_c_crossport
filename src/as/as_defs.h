@@ -377,6 +377,19 @@ void err_warning(AsmState *as);
 void err_mistake(AsmState *as);
 void err_divide_zero(AsmState *as);
 
+/* as_macro.c */
+void macro_init(void);
+void macro_reset(void);
+void macro_define(AsmState *as);
+void macro_expand(AsmState *as);
+void macro_rept(AsmState *as);
+void macro_irp(AsmState *as);
+void macro_irpc(AsmState *as);
+void macro_exitm(AsmState *as);
+int  macro_is_defined(AsmState *as);
+int  macro_is_active(void);
+int  macro_get_line(AsmState *as);
+
 /* Utility */
 void fatal_error(AsmState *as, const char *msg);
 void print_decimal(u16 value);

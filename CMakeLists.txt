@@ -22,5 +22,6 @@ add_executable(as
     src/as/as_rel.c
     src/as/as_pass.c
     src/as/as_io.c
+    src/as/as_macro.c
 )
 target_include_directories(as PRIVATE src/as src/common)

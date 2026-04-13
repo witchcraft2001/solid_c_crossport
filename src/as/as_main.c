@@ -260,8 +260,9 @@ int main(int argc, char **argv)
     as->memory_size = MEMORY_POOL_SIZE;
     memset(as->memory, 0, MEMORY_POOL_SIZE);
 
-    /* Initialize keyword tables */
+    /* Initialize keyword tables and macro system */
     sym_init_keywords(as);
+    macro_init();
 
     /* Print filenames */
     io_print_str("Source: ");

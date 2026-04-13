@@ -638,49 +638,42 @@ static void dir_do_endif(AsmState *as)
 
 static void dir_do_macro(AsmState *as)
 {
-    /* TODO: Implement macro definition.
-     * Need to save macro body text until ENDM,
-     * store in memory pool, and register macro name. */
-    err_report(as, 'N', "MACRO not yet implemented");
-
-    /* Skip until ENDM */
-    /* This is a minimal stub to avoid hanging */
+    macro_define(as);
 }
 
 static void dir_do_endm(AsmState *as)
 {
-    /* ENDM outside macro — error */
+    /* ENDM outside macro expansion — error */
     err_report(as, 'N', "ENDM without MACRO");
+    (void)as;
 }
 
 static void dir_do_rept(AsmState *as)
 {
-    /* TODO: Implement REPT directive */
-    err_report(as, 'N', "REPT not yet implemented");
+    macro_rept(as);
 }
 
 static void dir_do_irp(AsmState *as)
 {
-    /* TODO: Implement IRP directive */
-    err_report(as, 'N', "IRP not yet implemented");
+    macro_irp(as);
 }
 
 static void dir_do_irpc(AsmState *as)
 {
-    /* TODO: Implement IRPC directive */
-    err_report(as, 'N', "IRPC not yet implemented");
+    macro_irpc(as);
 }
 
 static void dir_do_exitm(AsmState *as)
 {
-    /* EXITM outside macro — error */
-    err_report(as, 'N', "EXITM without MACRO");
+    macro_exitm(as);
 }
 
 static void dir_do_local(AsmState *as)
 {
-    /* TODO: Implement LOCAL directive for macro-local symbols */
-    err_report(as, 'N', "LOCAL not yet implemented");
+    /* LOCAL is handled inside macro_read_line during expansion.
+     * If we get here, we're outside a macro. */
+    err_report(as, 'N', "LOCAL outside macro");
+    (void)as;
 }
 
 /* ----------------------------------------------------------------

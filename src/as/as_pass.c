@@ -210,10 +210,10 @@ void pass_process_line(AsmState *as)
                 break;
         }
     } else {
-        /* Not a keyword — could be a macro call or error */
-        if (as->asm_enabled) {
-            /* TODO: Check if it's a macro name and expand.
-             * For now, report as unknown opcode. */
+        /* Not a keyword — check if it's a macro call */
+        if (as->asm_enabled && macro_is_defined(as)) {
+            macro_expand(as);
+        } else if (as->asm_enabled) {
             err_report(as, 'O', "Unknown opcode");
         }
     }
@@ -254,16 +254,27 @@ void pass_run(AsmState *as)
         /* TODO: Output module header item */
     }
 
+    /* Reset macro state for this pass */
+    macro_reset();
+
     /* Main assembly loop */
     while (!end_seen) {
-        if (lex_read_line(as) < 0) {
-            /* EOF without END directive */
-            if (!end_seen) {
-                err_report(as, 'N', "Missing END directive");
-                /* Synthesize END */
-                dir_do_end(as);
+        /* Read next line: from macro expansion or from file */
+        if (macro_is_active()) {
+            if (!macro_get_line(as)) {
+                /* Macro ended, read from file */
+                if (lex_read_line(as) < 0) {
+                    err_report(as, 'N', "Missing END directive");
+                    dir_do_end(as);
+                    break;
+                }
             }
-            break;
+        } else {
+            if (lex_read_line(as) < 0) {
+                err_report(as, 'N', "Missing END directive");
+                dir_do_end(as);
+                break;
+            }
         }
 
         pass_process_line(as);
