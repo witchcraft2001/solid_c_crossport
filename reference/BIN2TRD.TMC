@@ -1,0 +1,816 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gerrno	C
+S7	(
+M8	N
+M9	N
+)
+S10	(
+M11	N
+M12	I
+M13	R
+M14	I
+M15	R
+M16	C
+M17	I
+M18	C
+)
+S20	(
+M21	N
+M22	N
+M23	N
+M24	N
+M25	N
+M26	N
+)
+S27	(
+M28	C
+M29	C
+M30	C
+M31	C
+M32	C
+M33	C
+M34	C
+M35	C
+)
+U36	(
+M37	S20
+M38	S27
+)
+S39	(
+M40	C
+M41	C
+M42	C
+M43	C
+)
+S44	(
+M45	I
+M46	C
+M47	C
+)
+V49	C	#8
+V51	C	#3
+V54	C	#10
+V62	C	#223
+S48	(
+M50	V49
+M52	V51
+M53	C
+M55	V54
+M56	N
+M57	N
+M58	N
+M59	N
+M60	N
+M61	C
+M63	V62
+)
+GHO	I
+GHI	I
+V64	C	#80
+GFname	V64
+V65	C	#80
+GLISTname	V65
+V66	C	#80
+GTRDname	V66
+V67	C	#2048
+Gtr0	V67
+V68	C	#256
+Gsec9	V68
+Gpt	R
+Gppt	R
+Gpt_line	R
+V69	C	#9
+GTRDOSname	V69
+Gftyp	C
+Gfstart	N
+Gblk	N
+GflenStruct	R
+Gflen	N
+G_tr	I
+G_sec	I
+Gasec	I
+GNfile	I
+Gfreesec	I
+GLine	I
+GTRUNC	I
+GPASS_N	I
+GisHEAD	I
+Gnnn	I
+GfTRUNC	(
+	I	#0
+)
+Xfilelength	R	F	E
+P70	I
+{
+A71	R
+	A71	Xlseek	P70	pI	#0	pI	#0	pI	#2	pI	cR	F4	:R
+	Xseek	P70	pI	#0	pI	#0	pI	cN	F3
+	yR	A71
+}
+Xini_cright	C	F	E
+{
+A72	I
+	A72	#0	:I
+	d
+	j	L73	A72	#128	#16	*I	<I	n
+	Gtr0	A72	RI	#C	*R	'	#0	CI	:C
+L74
+	A72	#1	;+I
+	b
+L73
+}
+Xsskip	C	F	E
+{
+	d
+	j	L76	Gpt	@	#32	=C	Gpt	@	#9	CI	=C	s	n
+	Gpt	#C	;+R
+L75
+	b
+L76
+}
+Xskip_end	C	F	E
+{
+	d
+	j	L78	Gpt	@	#13	!C	Gpt	@	#10	!C	m	n
+	Gpt	#C	;+R
+L77
+	b
+L78
+	d
+	j	L80	Gpt	@	#13	=C	Gpt	@	#10	=C	s	n
+	Gpt	#C	;+R
+L79
+	b
+L80
+}
+Xskip_comma	C	F	E
+{
+	d
+	j	L82	Gpt	@	#44	!C	Gpt	@	#13	!C	m	Gpt	@	#10	!C	m	Gpt	@	#59	!C	m	n
+	Gpt	#C	;+R
+L81
+	b
+L82
+	j	L83	Gpt	@	#44	=C	n
+	Gpt	#C	;+R
+	Xsskip	cC	F0
+	yC	#0	CI
+L83
+	yC	#1	CI
+}
+Xcword	I	F	E
+P84	R
+{
+A85	I
+A86	I
+	A86	Xstrlen	P84	pR	cN	F1	IN	:I
+	A85	#0	:I
+	d
+	j	L87	A85	A86	<I	n
+	j	L89	Xtoupper	Gpt	@	A85	RI	#C	*R	'	pC	cC	F1	P84	@	A85	RI	#C	*R	'	!C	n
+	yI	#1	_I
+L89
+L88
+	A85	#1	;+I
+	b
+L87
+	Gpt	A86	RI	#C	*R	:+R
+	Xsskip	cC	F0
+	yI	#0
+}
+Xerrm	C	F	E
+P90	R
+{
+	Xprintf	"69,82,82,79,82,32,40,76,105,110,101,61,37,48,51,117,41,58,32,0"	a	pR	GLine	pI	cI	U2
+	Xprintf	"60,37,115,62,10,0"	a	pR	P90	pR	cI	U2
+}
+Xerrex	C	F	E
+P91	R
+{
+	Xprintf	"69,82,82,76,73,78,69,32,91,0"	a	pR	cI	U1
+	d
+	j	L93	Gpt_line	@	#13	!C	Gpt_line	@	#10	!C	m	Gpt_line	@	#0	CI	!C	m	n
+	Xprintf	"37,99,0"	a	pR	Gpt_line	@	pC	cI	U2
+	Gpt_line	#C	;+R
+L92
+	b
+L93
+	Xprintf	"93,10,69,82,82,79,82,32,40,76,105,110,101,61,37,48,51,117,41,58,32,0"	a	pR	GLine	pI	cI	U2
+	Xprintf	"60,37,115,62,10,0"	a	pR	P91	pR	cI	U2
+	Xexit	#1	_I	pI	cC	F1
+}
+Xget_string	I	F	E
+P94	R
+P95	I
+P96	R
+{
+A97	I
+	A97	#0	:I
+	d
+	j	L98	A97	P95	<I	n
+	P94	@	A97	RI	#C	*R	'	#32	:C
+L99
+	A97	#1	;+I
+	b
+L98
+	j	L100	Gpt	@	#34	!C	n
+	Xerrm	"85,110,107,110,111,119,110,32,107,101,121,119,111,114,100,0"	a	pR	cC	F1
+	yI	#1	_I
+L100
+	Gpt	#C	;+R
+	A97	#0	:I
+L101
+	j	L102	Gpt	@	#34	=C	n
+	Gpt	#C	;+R
+	Xsskip	cC	F0
+	P96	@	A97	:I
+	yI	#0
+L102
+	A97	#1	;+I
+	j	L103	A97	P95	>I	n
+	Xerrm	"84,111,111,32,108,111,110,103,32,112,97,114,97,109,101,116,101,114,0"	a	pR	cC	F1
+	yI	#1	_I
+L103
+	P94	@	Gpt	@	:C
+	P94	#C	;+R
+	Gpt	#C	;+R
+	j	L101
+}
+Xdec_n	N	F	E
+{
+A104	N
+	A104	#0	NI	:N
+	d
+	j	L106	Xisdigit	Gpt	@	pC	cC	F1	#0	!C	n
+	A104	A104	#10	NI	*N	Gpt	@	NC	+N	#48	NC	-N	:N
+	Gpt	#C	;+R
+L105
+	b
+L106
+	yN	A104
+}
+Xhex_n	N	F	E
+{
+A107	N
+	A107	#0	NI	:N
+A108	C
+	d
+	j	L110	Xisxdigit	Gpt	@	pC	cC	F1	#0	!C	n
+	j	L111	Xisdigit	Gpt	@	pC	cC	F1	#0	!C	n
+	A107	A107	#4	NI	lN	Gpt	@	NC	+N	#48	NC	-N	:N
+	j	L112
+L111
+	A108	Xtoupper	Gpt	@	pC	cC	F1	:C
+	A107	A107	#4	NI	lN	A108	NC	+N	#65	NC	-N	#10	NI	+N	:N
+L112
+	Gpt	#C	;+R
+L109
+	b
+L110
+	yN	A107
+}
+Xnum	I	F	E
+P113	R
+{
+	j	L114	Xisdigit	Gpt	@	pC	cC	F1	#0	!C	n
+	P113	@	Xdec_n	cN	F0	:N
+	yI	#0
+L114
+	j	L115	Gpt	@	#35	=C	n
+	Gpt	#C	;+R
+	j	L116	Xisxdigit	Gpt	@	pC	cC	F1	#0	!C	n	n
+	j	L117
+L116
+	P113	@	Xhex_n	cN	F0	:N
+	yI	#0
+L115
+L117
+	Xerrm	"73,108,108,101,103,97,108,32,110,117,109,98,101,114,0"	a	pR	cC	F1
+	yI	#1	_I
+}
+Xload_file	I	F	E
+P118	I
+{
+A119	N
+A120	N
+A121	N
+A122	N
+A123	N
+V124	C	#17
+A125	V124
+	GHI	Xopen	GFname	a	pR	#2	#0	|I	pI	cN	F2	IN	:I
+	j	L126	GHI	#1	_I	=I	n
+	Xprintf	"69,82,82,79,82,32,40,76,105,110,101,61,37,48,51,117,44,32,70,105,108,101,61,34,37,115,34,41,10,0"	a	pR	GLine	pI	GFname	a	pR	cI	U3
+	Xperror	"70,73,76,69,32,69,82,82,79,82,0"	a	pR	cC	F1
+	Xexit	#1	_I	pI	cC	F1
+L126
+	j	L127	P118	#0	=I	n
+	GflenStruct	Xfilelength	GHI	pI	cR	F1	:R
+	j	L128	GflenStruct	@	M3	.	#0	NI	>N	n
+	Xerrex	"66,105,110,97,114,121,32,102,105,108,101,32,108,111,110,103,101,114,32,116,104,101,110,32,54,53,53,51,54,32,98,121,116,101,115,0"	a	pR	cC	F1
+L128
+	j	L129	GflenStruct	@	M3	.	#0	NI	=N	GflenStruct	@	M2	.	#0	NI	=N	m	n
+	Xerrex	"66,105,110,97,114,121,32,102,105,108,101,32,104,97,115,32,122,101,114,111,32,108,101,110,103,116,104,0"	a	pR	cC	F1
+L129
+	Gflen	GflenStruct	@	M2	.	:N
+	Gblk	Gflen	#256	NI	/N	:N
+	j	L130	Gflen	#256	NI	%N	#0	NI	>N	n
+	Gblk	#1	;+N
+L130
+	j	L131
+L127
+	Xread	GHI	pI	A125	a	pR	#17	pI	cN	F3
+	A119	#0	NI	:N
+	d
+	j	L132	A119	#8	NI	<N	n
+	GTRDOSname	A119	RN	#C	*R	'	A125	A119	RN	#C	*R	'	:C
+L133
+	A119	#1	;+N
+	b
+L132
+	Gftyp	A125	#8	RI	#C	*R	'	:C
+	Gfstart	A125	#9	RI	#C	*R	'	NC	A125	#10	RI	#C	*R	'	NC	#256	NI	*N	+N	:N
+	Gflen	A125	#11	RI	#C	*R	'	NC	A125	#12	RI	#C	*R	'	NC	#256	NI	*N	+N	:N
+	Gblk	A125	#14	RI	#C	*R	'	NC	:N
+	A121	A125	#15	RI	#C	*R	'	NC	A125	#16	RI	#C	*R	'	NC	#256	NI	*N	+N	:N
+	A120	A119	#0	NI	:N	:N
+	d
+	j	L134	A119	#15	NI	<N	n
+	A123	A125	A119	RN	#C	*R	'	NC	:N
+	A120	A123	#257	NI	*N	A119	+N	:+N
+L135
+	A119	#1	:+N
+	b
+L134
+	j	L136	A120	A121	!N	n
+	Xerrex	"73,108,108,101,103,97,108,32,99,104,101,99,107,115,117,109,32,105,110,32,104,101,97,100,101,114,32,111,102,32,104,111,98,101,116,97,0"	a	pR	cC	F1
+L136
+L131
+	j	L137	GPASS_N	#0	!I	n
+A138	R
+	A138	Xmalloc	#4096	pI	cR	F1	:R
+	j	L139	A138	#0	RI	=R	n
+	Xerrex	"79,117,116,32,111,102,32,109,101,109,111,114,121,0"	a	pR	cC	F1
+L139
+	d
+	j	L141	A122	Xread	GHI	pI	A138	pR	#4096	pI	cN	F3	:N	#0	NI	>N	n
+	Xwrite	GHO	pI	A138	pR	A122	pN	cN	F3
+L140
+	b
+L141
+	Xfree	A138	pR	cC	F1
+L137
+	Xclose	GHI	pI	cN	F1
+	yI	#0
+}
+Xtr_sec	C	F	E
+P142	I
+{
+	G_tr	P142	#16	/I	:I
+	G_sec	P142	#16	%I	:I
+}
+XputFAT	C	F	E
+P143	C
+{
+A144	R
+	A144	Gtr0	a	GNfile	#16	*I	RI	#C	*R	+R	:R
+	Xtr_sec	Gasec	pI	cC	F1
+	Xstrcpy	A144	pR	GTRDOSname	a	pR	cR	F2
+	A144	@	#8	RI	#C	*R	'	Gftyp	:C
+	A144	@	#9	RI	#C	*R	'	Gfstart	#256	NI	%N	CN	:C
+	A144	@	#10	RI	#C	*R	'	Gfstart	#256	NI	/N	CN	:C
+	A144	@	#11	RI	#C	*R	'	Gflen	#256	NI	%N	CN	:C
+	A144	@	#12	RI	#C	*R	'	Gflen	#256	NI	/N	CN	:C
+	A144	@	#13	RI	#C	*R	'	Gblk	CN	:C
+	A144	@	#14	RI	#C	*R	'	G_sec	CI	:C
+	A144	@	#15	RI	#C	*R	'	G_tr	CI	:C
+	Gasec	Gblk	IN	:+I
+	j	L145	Gasec	GTRUNC	#0	!I	#255	#80	?I	#16	*I	#2	*I	]I	n
+	j	L146	GTRUNC	#0	=I	n
+	Xerrex	"83,116,97,110,100,97,114,116,32,46,84,82,68,32,109,111,114,101,32,116,104,97,110,32,54,53,53,51,54,48,32,98,121,116,101,115,32,33,0"	a	pR	cC	F1
+	j	L147
+L146
+	Xerrex	"69,120,116,101,110,100,101,100,32,46,84,82,68,32,109,111,114,101,32,116,104,97,110,32,50,48,56,56,57,54,48,32,98,121,116,101,115,32,33,0"	a	pR	cC	F1
+L147
+L145
+	GNfile	#1	;+I
+	j	L148	GPASS_N	#0	!I	n
+	Xprintf	"91,37,99,37,48,51,117,93,32,78,97,109,101,61,34,37,115,37,99,34,32,76,101,110,61,37,48,53,117,32,83,116,97,114,116,61,37,48,53,117,32,66,108,107,61,37,48,51,117,32,84,114,107,61,37,48,51,117,32,83,101,99,61,37,48,50,117,10,0"	a	pR	P143	pC	GNfile	pI	GTRDOSname	a	pR	Gftyp	pC	Gflen	IN	pI	Gfstart	pN	Gblk	pN	G_tr	pI	G_sec	pI	cI	U10
+L148
+}
+Xget_default	C	F	E
+{
+A149	I
+A150	I
+A151	I
+A152	I
+A153	R
+	A153	GFname	a	:R
+	A149	Xstrlen	A153	pR	cN	F1	IN	:I
+	d
+	j	L154	A149	#0	>I	n
+	A149	#1	;-I
+	j	L156	A153	@	A149	RI	#C	*R	'	#92	=C	n
+	j	L154
+L156
+L155
+	b
+L154
+	A150	Xstrlen	A153	pR	cN	F1	A149	NI	-N	IN	:I
+	A152	#0	:I
+	A151	#0	:I
+	d
+	j	L157	A151	#8	<I	n
+	j	L159	A153	@	A151	A149	+I	RI	#C	*R	'	#46	=C	n
+	A152	#1	:I
+L159
+	j	L160	A151	A150	]I	n
+	A152	#1	:I
+L160
+	j	L161	A152	#0	=I	n
+	GTRDOSname	A151	RI	#C	*R	'	A153	@	A151	A149	+I	RI	#C	*R	'	:C
+	j	L162
+L161
+	GTRDOSname	A151	RI	#C	*R	'	#32	:C
+L162
+L158
+	A151	#1	;+I
+	b
+L157
+	Gftyp	#67	:C
+	Gfstart	#0	NI	:N
+}
+Xset_TRD_name	C	F	E
+{
+A163	I
+A164	I
+A165	I
+A166	R
+	A166	GLISTname	a	:R
+	A163	Xstrlen	A166	pR	cN	F1	IN	:I
+	A164	#0	:I
+	d
+	j	L167	A164	A163	<I	n
+	A166	@	A164	RI	#C	*R	'	Xtolower	A166	@	A164	RI	#C	*R	'	pC	cC	F1	:C
+L168
+	A164	#1	;+I
+	b
+L167
+	j	L169	A166	@	A163	#3	-I	RI	#C	*R	'	#116	!C	A166	@	A163	#2	-I	RI	#C	*R	'	#114	!C	s	A166	@	A163	#1	-I	RI	#C	*R	'	#108	!C	s	n
+	Xerrm	"68,101,115,99,114,105,112,116,111,114,32,109,117,115,116,32,104,97,118,101,32,84,82,76,32,101,120,116,101,110,116,105,111,110,0"	a	pR	cC	F1
+	Xexit	#1	_I	pI	cC	F1
+L169
+	Xstrcpy	GTRDname	a	pR	GLISTname	a	pR	cR	F2
+	GTRDname	A163	#1	-I	RI	#C	*R	'	#100	:C
+}
+Xget_TYP	I	F	E
+{
+	j	L170	Xskip_comma	cC	F0	#0	!C	n
+	j	L171
+L170
+	j	L172	Gpt	@	#44	=C	n
+	yI	#0
+L172
+	j	L173	Xget_string	Gftyp	a	pR	#1	pI	Gnnn	a	pR	cI	F3	#0	=I	n
+	yI	#0
+L173
+L171
+	Xerrex	"73,108,108,101,103,97,108,32,116,121,112,101,32,111,102,32,84,82,45,68,79,83,32,102,105,108,101,0"	a	pR	cC	F1
+	yI	#1	_I
+}
+Xget_MSDOSname	I	F	E
+{
+	j	L174	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n
+	Xerrex	"78,97,109,101,32,111,102,32,102,105,108,101,32,101,120,112,101,99,116,101,100,0"	a	pR	cC	F1
+L174
+	j	L175	Xget_string	GFname	a	pR	#79	pI	Gnnn	a	pR	cI	F3	#0	!I	n
+	Xerrex	"69,114,114,111,114,32,105,110,32,110,97,109,101,32,111,102,32,102,105,108,101,0"	a	pR	cC	F1
+L175
+	GFname	Gnnn	RI	#C	*R	'	#0	CI	:C
+	yI	#0
+}
+Xget_TRDOSname	I	F	E
+{
+A176	I
+	j	L177	Xskip_comma	cC	F0	#0	!C	n
+	j	L178
+L177
+	j	L179	Gpt	@	#44	=C	n
+	yI	#0
+L179
+	A176	#0	:I
+	d
+	j	L180	A176	#8	<I	n
+	GTRDOSname	A176	RI	#C	*R	'	#32	:C
+L181
+	A176	#1	;+I
+	b
+L180
+	j	L182	Xget_string	GTRDOSname	a	pR	#8	pI	Gnnn	a	pR	cI	F3	#0	=I	n
+	yI	#0
+L182
+L178
+	Xerrex	"69,114,114,111,114,32,105,110,32,110,97,109,101,32,111,102,32,84,82,68,79,83,32,102,105,108,101,0"	a	pR	cC	F1
+	yI	#1	_I
+}
+Xget_STRT	I	F	E
+{
+	j	L183	Xskip_comma	cC	F0	#0	!C	n
+	j	L184
+L183
+	j	L185	Xnum	Gfstart	a	pR	cI	F1	#0	=I	n
+	yI	#0
+L185
+L184
+	Xerrex	"69,114,114,111,114,32,105,110,32,60,115,116,97,114,116,62,32,112,97,114,97,109,101,116,101,114,0"	a	pR	cC	F1
+	yI	#1	_I
+}
+Xd_disk	I	F	E
+P186	I
+{
+	j	L187	GisHEAD	#0	!I	n
+	Xerrex	"83,101,99,111,110,100,32,104,101,97,100,101,114,32,111,102,32,100,105,115,107,0"	a	pR	cC	F1
+L187
+	GisHEAD	#1	;+I
+	GTRUNC	P186	:I
+	j	L188	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n
+	yI	#0
+L188
+	j	L189	Xget_string	Gsec9	a	#245	RI	#C	*R	+R	pR	#8	pI	Gnnn	a	pR	cI	F3	#0	!I	n
+	Xerrex	"73,108,108,101,103,97,108,32,110,97,109,101,32,111,102,32,84,82,68,79,83,32,100,105,115,107,0"	a	pR	cC	F1
+L189
+	yI	#0
+}
+Xd_file	I	F	E
+P190	I
+{
+	j	L191	GNfile	#128	]I	n
+	Xerrex	"77,111,114,101,32,116,104,101,110,32,49,50,56,32,102,105,108,101,115,0"	a	pR	cC	F1
+L191
+	Xget_MSDOSname	cI	F0
+	Xget_default	cC	F0
+	Xload_file	P190	pI	cI	F1
+	j	L192	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n	n
+	Xget_TRDOSname	cI	F0
+L192
+	j	L193	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n	n
+	Xget_TYP	cI	F0
+L193
+	j	L194	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n	n
+	Xget_STRT	cI	F0
+L194
+	XputFAT	P190	#0	!I	#72	#66	?C	pC	cC	F1
+	yI	#0
+}
+Xini_pass	C	F	E
+{
+	Gasec	#16	:I
+	GNfile	#0	:I
+	GLine	#1	:I
+	GisHEAD	#0	:I
+}
+Xcom_type	C	F	E
+{
+A195	C
+	Xsskip	cC	F0
+	j	L196	Gpt	@	#32	[C	Gpt	@	#59	=C	s	n
+	yC	#0	CI
+L196
+	A195	#1	_I	CI	:C
+	j	L198
+L199
+	j	L200	Xcword	"78,79,82,77,65,76,0"	a	pR	cI	F1	#0	=I	n
+	A195	#1	CI	:C
+L200
+	j	L197
+L201
+	j	L202	Xcword	"69,88,84,69,78,68,69,68,0"	a	pR	cI	F1	#0	=I	n
+	A195	#2	CI	:C
+L202
+	j	L197
+L203
+	j	L204	Xcword	"66,73,78,65,82,89,0"	a	pR	cI	F1	#0	=I	n
+	A195	#3	CI	:C
+L204
+	j	L197
+L205
+	j	L206	Xcword	"72,79,66,69,84,65,0"	a	pR	cI	F1	#0	=I	n
+	A195	#4	CI	:C
+L206
+	j	L197
+L207
+	j	L208	Xcword	"84,82,85,78,67,65,84,69,68,0"	a	pR	cI	F1	#0	=I	n
+	A195	#5	CI	:C
+L208
+	j	L197
+	j	L197
+L198
+	eC	Xtoupper	Gpt	@	pC	cC	F1
+	w	L199	#78
+	w	L201	#69
+	w	L203	#66
+	w	L205	#72
+	w	L207	#84
+	f	L197
+L197
+	j	L209	A195	#1	_I	CI	=C	n
+	Xerrex	"85,110,107,110,111,119,110,32,107,101,121,119,111,114,100,0"	a	pR	cC	F1
+L209
+	yC	A195
+}
+Xpass	I	F	E
+P210	I
+{
+A211	R
+A212	I
+	GPASS_N	P210	:I
+	Xini_pass	cC	F0
+	A212	Xopen	GLISTname	a	pR	#0	#2	|I	pI	cN	F2	IN	:I
+	j	L213	A212	#1	_I	=I	n
+	Xperror	"70,105,108,101,32,111,112,101,110,32,69,82,82,79,82,0"	a	pR	cC	F1
+	Xexit	#1	_I	pI	cC	F1
+L213
+	A211	Xfilelength	A212	pI	cR	F1	:R
+	Xprintf	"73,110,112,117,116,32,102,105,108,101,58,32,37,115,32,40,37,117,32,98,121,116,101,115,41,10,10,0"	a	pR	GLISTname	a	pR	A211	@	M2	.	pN	cI	U3
+	Gppt	Gpt	Xmalloc	A211	@	M2	.	#2	NI	+N	pN	cR	F1	:R	:R
+	j	L214	Gppt	#0	RI	=R	n
+	Xprintf	"79,117,116,32,111,102,32,77,101,109,111,114,121,33,10,0"	a	pR	cI	U1
+	Xexit	#1	_I	pI	cC	F1
+L214
+	Xread	A212	pI	Gppt	pR	A211	@	M2	.	pN	cN	F3
+	Gppt	@	A211	@	M2	.	RN	#C	*R	'	#10	:C
+	Gppt	@	A211	@	M2	.	#1	NI	+N	RN	#C	*R	'	#0	CI	:C
+	Xclose	A212	pI	cN	F1
+L215
+	j	L216	Gpt	@	#0	CI	=C	n
+	Xfree	Gppt	pR	cC	F1
+	yI	#0
+L216
+	Gpt_line	Gpt	:R
+	j	L218
+L219
+	j	L217
+L220
+	j	L221	Xd_disk	#0	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L221
+	j	L217
+L222
+	j	L223	Xd_disk	#1	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L223
+	j	L217
+L224
+	j	L225	Xd_file	#0	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L225
+	j	L217
+L226
+	j	L227	Xd_file	#1	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L227
+	j	L217
+L228
+	GfTRUNC	#1	:I
+	j	L217
+L229
+	yI	#1	_I
+	j	L217
+L218
+	eC	Xcom_type	cC	F0
+	w	L219	#0
+	w	L220	#1
+	w	L222	#2
+	w	L224	#3
+	w	L226	#4
+	w	L228	#5
+	f	L229
+L217
+	Xskip_end	cC	F0
+	GLine	#1	;+I
+	j	L215
+}
+Xopen_trd	I	F	E
+{
+A230	I
+	GHO	Xopen	GTRDname	a	pR	#0	#8	|I	#4	|I	#1	|I	pI	cN	F2	IN	:I
+	j	L231	GHO	#1	_I	=I	n
+	Xperror	"69,114,114,111,114,32,111,102,32,100,105,115,107,32,105,109,97,103,101,32,109,97,107,105,110,103,10,0"	a	pR	cC	F1
+	yI	#1	_I
+L231
+	Xtr_sec	Gasec	pI	cC	F1
+	Gfreesec	#16	GTRUNC	#0	!I	#255	#80	?I	*I	#2	*I	Gasec	-I	:I
+	A230	#0	:I
+	d
+	j	L232	A230	#9	<I	n
+	Gsec9	#234	A230	+I	RI	#C	*R	'	#32	CI	:C
+L233
+	A230	#1	;+I
+	b
+L232
+	Gsec9	#225	RI	#C	*R	'	G_sec	CI	:C
+	Gsec9	#226	RI	#C	*R	'	G_tr	CI	:C
+	Gsec9	#227	RI	#C	*R	'	#22	CI	:C
+	Gsec9	#228	RI	#C	*R	'	GNfile	CI	:C
+	Gsec9	#229	RI	#C	*R	'	Gfreesec	#256	%I	CI	:C
+	Gsec9	#230	RI	#C	*R	'	Gfreesec	#256	/I	CI	:C
+	Gsec9	#231	RI	#C	*R	'	#16	CI	:C
+	Gsec9	#244	RI	#C	*R	'	#0	CI	:C
+	Xwrite	GHO	pI	Gtr0	a	pR	#8	#256	*I	pI	cN	F3
+	Xwrite	GHO	pI	Gsec9	a	pR	#256	pI	cN	F3
+	A230	#0	:I
+	d
+	j	L234	A230	#8	#256	*I	<I	n
+	Gtr0	A230	RI	#C	*R	'	#221	CI	:C
+L235
+	A230	#1	;+I
+	b
+L234
+	Xwrite	GHO	pI	Gtr0	a	pR	#7	#256	*I	pI	cN	F3
+	Xprintf	"37,115,32,84,82,45,68,79,83,32,68,105,115,107,32,40,68,68,56,48,41,32,32,76,97,98,101,108,58,32,34,37,56,115,34,10,70,105,108,101,115,58,32,37,117,32,32,70,114,101,101,32,115,101,99,116,111,114,115,58,32,37,117,9,10,10,0"	a	pR	GTRUNC	#0	!I	"69,120,116,101,110,100,101,100,0"	a	"78,111,114,109,97,108,0"	a	?R	pR	Gsec9	a	#245	RI	#C	*R	+R	pR	GNfile	pI	Gfreesec	pI	cI	U5
+	yI	#0
+}
+Xclose_trd	I	F	E
+{
+	j	L236	GTRUNC	#0	=I	n
+A237	N
+A238	N
+A239	N
+	A239	#4096	#256	/I	NI	:N
+A240	R
+	A240	Xmalloc	#4096	pI	cR	F1	:R
+	A237	#0	NI	:N
+	d
+	j	L241	A237	#4096	NI	<N	n
+	A240	@	A237	RN	#C	*R	'	#207	CI	:C
+L242
+	A237	#1	;+N
+	b
+L241
+	j	L243	GfTRUNC	#0	!I	n	Gasec	#2560	<I	m	n
+	A238	#2560	Gasec	-I	NI	:N
+	d
+	j	L245	A238	A239	>N	n
+	Xwrite	GHO	pI	A240	pR	#4096	pI	cN	F3
+	A238	A239	:-N
+L244
+	b
+L245
+	j	L246	A238	#0	NI	>N	n
+	Xwrite	GHO	pI	A240	pR	A238	#256	NI	*N	pN	cN	F3
+L246
+L243
+	Xfree	A240	pR	cC	F1
+L236
+	Xclose	GHO	pI	cN	F1
+	yI	#0
+}
+Xbin2trd	I	F	E
+{
+	j	L247	Xpass	#0	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L247
+	j	L248	Xopen_trd	cI	F0	#0	!I	n
+	yI	#1	_I
+L248
+	j	L249	Xpass	#1	pI	cI	F1	#0	!I	n
+	yI	#1	_I
+L249
+	j	L250	Xclose_trd	cI	F0	#0	!I	n
+	yI	#1	_I
+L250
+	yI	#0
+}
+Xmain	I	F	E
+P251	I
+P252	R
+{
+A253	I
+	Xprintf	"10,77,97,107,105,110,103,32,84,82,68,32,102,105,108,101,32,102,114,111,109,32,98,105,110,97,114,105,101,115,32,111,114,47,97,110,100,32,104,111,98,101,116,97,32,102,105,108,101,115,32,40,118,49,46,48,46,50,48,50,49,41,0"	a	pR	cI	U1
+	Xprintf	"10,40,99,41,32,49,57,57,57,32,32,67,111,112,112,101,114,32,70,101,101,116,32,40,86,121,97,99,104,101,115,108,97,118,32,77,101,100,110,111,110,111,103,111,118,41,0"	a	pR	cI	U1
+	Xprintf	"10,32,32,32,32,50,48,48,50,32,32,77,111,100,105,102,105,99,97,116,105,111,110,32,98,121,32,65,108,101,120,97,110,100,101,114,32,83,104,97,98,97,114,115,104,105,110,32,60,109,101,64,115,104,97,111,115,46,110,101,116,62,0"	a	pR	cI	U1
+	Xprintf	"10,32,32,32,32,50,48,50,49,32,32,83,112,114,105,110,116,101,114,32,118,101,114,115,105,111,110,32,98,121,32,68,109,105,116,114,121,32,77,105,107,104,97,108,116,99,104,101,110,107,111,118,32,60,109,105,107,104,97,108,116,99,104,101,110,107,111,118,64,103,109,97,105,108,46,99,111,109,62,10,10,0"	a	pR	cI	U1
+	j	L254	P251	#1	=I	n
+	Xprintf	"32,32,32,85,115,97,103,101,58,10,9,98,105,110,50,116,114,100,32,60,102,105,108,101,110,97,109,101,62,46,116,114,108,10,10,0"	a	pR	cI	U1
+	yI	#1	_I
+L254
+	Xstrcpy	GLISTname	a	pR	P252	@	#1	RI	#R	*R	'	pR	cR	F2
+	Xstrcpy	Gsec9	a	#245	RI	#C	*R	+R	pR	"110,111,110,97,109,101,100,32,0"	a	pR	cR	F2
+	Xset_TRD_name	cC	F0
+	Xini_cright	cC	F0
+	A253	Xbin2trd	cI	F0	:I
+	j	L255	GfTRUNC	#0	!I	n
+	Xprintf	"10,84,82,68,32,102,105,108,101,32,119,97,115,32,116,114,117,110,99,97,116,101,100,10,0"	a	pR	cI	U1
+L255
+	j	L256	A253	#0	=I	n
+	Xprintf	"10,79,107,33,10,10,0"	a	pR	cI	U1
+L256
+	yI	A253
+}
