@@ -235,7 +235,7 @@ void pass_run(AsmState *as)
         return;
     }
 
-    /* Pass 2: create REL file and write header */
+    /* Pass 2: create REL file and write module header */
     if (as->pass2) {
         if (io_create_rel(as) != 0) {
             fatal_error(as, "Cannot create REL file");
@@ -244,14 +244,67 @@ void pass_run(AsmState *as)
         }
 
         /* Initialize REL bitstream */
-        /* rel_init is in as_rel.c but not declared in as_defs.h.
-         * We initialize manually. */
         as->rel_byte = 0;
         as->rel_bitcount = 0xF8;
         as->rel_ptr = 0;
 
-        /* Write module name as first special item */
-        /* TODO: Output module header item */
+        /* Write module header:
+         * 1. Program name (item 2)
+         * 2. Entry symbols / PUBLIC (item 0) — done during pass 2 processing
+         * 3. Data segment size (item 10)
+         * 4. Code segment size (item 13)
+         * 5. Set location counter (item 11) to start of CSEG
+         */
+
+        /* Program name (item 2) */
+        {
+            int namelen = (int)strlen((char *)as->module_name);
+            if (namelen > 0) {
+                /* Store name in temp label area for rel_put_spec_item */
+                u16 save_lp = as->label_ptr;
+                /* Create a temporary entry in memory for the name */
+                u16 tmp = as->symtab_free;
+                as->memory[tmp + 4] = (u8)namelen;
+                memcpy(&as->memory[tmp + 10], as->module_name, namelen);
+                as->label_ptr = tmp;
+                rel_put_spec_item(as, 2, 0, 0);
+                as->label_ptr = save_lp;
+            }
+        }
+
+        /* Scan symbol table for PUBLIC/ENTRY entries (item 0) */
+        /* Walk the hash chains looking for PUBLIC symbols */
+        {
+            int h;
+            for (h = 0; h < 33; h++) {
+                u16 ptr = as->sym_lookup1[h];
+                while (ptr != 0) {
+                    u8 *entry = &as->memory[ptr];
+                    u8 attr = entry[5];
+                    if (attr & SYM_PUBLIC) {
+                        /* Output entry symbol (item 0) */
+                        u16 save_lp = as->label_ptr;
+                        as->label_ptr = ptr;
+                        rel_put_spec_item(as, 0, attr & 3,
+                            (u16)entry[6] | ((u16)entry[7] << 8));
+                        as->label_ptr = save_lp;
+                    }
+                    /* Follow chain: next at +0 */
+                    ptr = (u16)entry[0] | ((u16)entry[1] << 8);
+                }
+            }
+        }
+
+        /* Data segment size (item 10), seg=abs as in original */
+        rel_put_spec_item(as, 10, SEG_ASEG, as->dseg_size);
+
+        /* Code segment size (item 13) */
+        if (as->cseg_size > 0) {
+            rel_put_spec_item(as, 13, SEG_CSEG, as->cseg_size);
+        }
+
+        /* Set location counter to CSEG:0000 (item 11) */
+        rel_put_spec_item(as, 11, SEG_CSEG, 0x0000);
     }
 
     /* Reset macro state for this pass */

@@ -484,34 +484,71 @@ static void dir_do_name(AsmState *as)
 
 void dir_do_end(AsmState *as)
 {
+    /* Save current segment size */
+    save_segment_counter(as);
+
     /* Check for optional start address */
     int ch = lex_skipspace(as);
     u16 start_addr = 0;
+    u8 start_seg = 0;
     u8 has_start = 0;
 
     if (ch != 0x0D && ch != ';') {
         lex_pushback(as);
+        u16 saved_lp = as->label_ptr;
         expr_evaluate(as);
+        as->label_ptr = saved_lp;
         start_addr = as->expr_saved;
+        start_seg = as->expr_seg_type & 3;
         has_start = 1;
     } else {
         lex_pushback(as);
     }
 
-    if (as->pass2) {
-        /* Output segment sizes */
-        /* Entry special item for start address */
-        if (has_start) {
-            rel_put_spec_item(as, 8, as->expr_seg_type, start_addr);
+    if (!as->pass2) {
+        /* ---- End of Pass 1 ----
+         * Generate module header in REL bitstream:
+         *   1. Program name
+         *   2. PUBLIC entry symbols
+         *   3. Common block sizes
+         *   4. Data size
+         *   5. Code size
+         * This is written at the start of the REL file for pass 2.
+         * We need to remember these values for pass 2.
+         */
+
+        /* Build module name from ASM filename if not set by NAME directive */
+        if (as->module_name[0] == 0) {
+            /* Extract basename from asm_filename */
+            const char *p = as->asm_filename;
+            const char *base = p;
+            while (*p) {
+                if (*p == '/' || *p == '\\') base = p + 1;
+                p++;
+            }
+            int i = 0;
+            while (base[i] && base[i] != '.' && i < 6) {
+                u8 c = (u8)base[i];
+                if (c >= 'a' && c <= 'z') c -= 0x20;
+                as->module_name[i] = c;
+                i++;
+            }
+            as->module_name[i] = 0;
         }
 
-        /* Output segment size items */
-        if (as->cseg_size > 0) {
-            rel_put_spec_item(as, 9, SEG_CSEG, as->cseg_size);
-        }
-        if (as->dseg_size > 0) {
-            rel_put_spec_item(as, 10, SEG_DSEG, as->dseg_size);
-        }
+        /* Save start address for pass 2 */
+        as->expr_saved = start_addr;
+        as->expr_seg_type = start_seg;
+    } else {
+        /* ---- End of Pass 2 ----
+         * Write end program item with entry point
+         * Write end file item
+         * Finalize REL output
+         */
+
+        /* End program (item 14) with optional entry point */
+        rel_put_spec_item(as, 14, start_seg,
+                          has_start ? start_addr : 0);
 
         /* Finalize REL file */
         rel_finalize(as);

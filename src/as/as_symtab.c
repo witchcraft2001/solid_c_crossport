@@ -324,6 +324,10 @@ static const KeywordDef keyword_table[] = {
     {".NOCOND",  KW_DIRECTIVE, DIR_NOCOND,  0x00},
     {".LIST",    KW_DIRECTIVE, DIR_LIST,    0x00},
     {".XLIST",   KW_DIRECTIVE, DIR_XLIST,   0x00},
+    {".Z80",     KW_DIRECTIVE, DIR_LIST,    0x00},  /* no-op: already in Z80 mode */
+    {".8080",    KW_DIRECTIVE, DIR_LIST,    0x00},  /* no-op: ignored */
+    {".COMMENT", KW_DIRECTIVE, DIR_LIST,    0x00},  /* TODO: skip block */
+    {".REQUEST", KW_DIRECTIVE, DIR_LIST,    0x00},  /* TODO: request lib */
 
     /* Register names (T39A3) */
     {"A",   KW_REGISTER, REG_A,   0x00},
