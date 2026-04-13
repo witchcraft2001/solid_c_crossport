@@ -34,3 +34,14 @@ add_executable(ol
     src/ol/ol_ops.c
 )
 target_include_directories(ol PRIVATE src/ol src/common)
+
+# Code Generator (CC2)
+add_executable(cc2
+    src/cc2/cc2_main.c
+    src/cc2/cc2_io.c
+    src/cc2/cc2_tmc.c
+    src/cc2/cc2_sym.c
+    src/cc2/cc2_gen.c
+    src/cc2/cc2_out.c
+)
+target_include_directories(cc2 PRIVATE src/cc2 src/common)
