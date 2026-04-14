@@ -1171,7 +1171,12 @@ static void gen_load_hl(Cc2State *cc, VVal *v)
         emit_instr(cc, "ld", buf);
         break;
     case VK_GLOBAL:
-        snprintf(buf, sizeof(buf), "hl,(%s)", v->sym);
+        if (v->is_addr) {
+            /* Address of global: ld hl,name (not ld hl,(name)) */
+            snprintf(buf, sizeof(buf), "hl,%s", v->sym);
+        } else {
+            snprintf(buf, sizeof(buf), "hl,(%s)", v->sym);
+        }
         emit_instr(cc, "ld", buf);
         break;
     case VK_LOCAL:
@@ -1260,9 +1265,12 @@ static void gen_load_de(Cc2State *cc, VVal *v)
         emit_instr(cc, "ld", buf);
         break;
     case VK_GLOBAL:
-        snprintf(buf, sizeof(buf), "de,(%s)", v->sym);
-        /* Z80 doesn't have ld de,(nn) directly, use ld hl,(nn) then ex */
-        emit_instr(cc, "ld", buf); /* assembler pseudo-op or we need different approach */
+        if (v->is_addr) {
+            snprintf(buf, sizeof(buf), "de,%s", v->sym);
+        } else {
+            snprintf(buf, sizeof(buf), "de,(%s)", v->sym);
+        }
+        emit_instr(cc, "ld", buf);
         break;
     case VK_LOCAL:
         snprintf(buf, sizeof(buf), "e,(ix%+d)", v->value);
@@ -1366,6 +1374,11 @@ static void gen_load_bc(Cc2State *cc, VVal *v)
         emit_instr(cc, "ld", "b,d");
         break;
     case VK_GLOBAL:
+        if (v->is_addr) {
+            snprintf(buf, sizeof(buf), "bc,%s", v->sym);
+            emit_instr(cc, "ld", buf);
+            break;
+        }
         /* Z80 has no ld bc,(nn) — load via HL */
         snprintf(buf, sizeof(buf), "hl,(%s)", v->sym);
         emit_instr(cc, "ld", buf);
@@ -1485,9 +1498,12 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
                 emit_instr(cc, "push", "bc");
                 pushes++;
             } else if (arg->kind == VK_GLOBAL) {
-                /* Global: ld hl,(name) / push hl */
+                /* Global: ld hl,(name) or ld hl,name (address) / push hl */
                 char buf[128];
-                snprintf(buf, sizeof(buf), "hl,(%s)", arg->sym);
+                if (arg->is_addr)
+                    snprintf(buf, sizeof(buf), "hl,%s", arg->sym);
+                else
+                    snprintf(buf, sizeof(buf), "hl,(%s)", arg->sym);
                 emit_instr(cc, "ld", buf);
                 emit_instr(cc, "push", "hl");
                 pushes++;
@@ -3111,8 +3127,23 @@ static void gen_cond_jump(Cc2State *cc)
             break;
         }
         case '\'': {
+            /* Dereference pointer */
             VVal *top = vtop();
-            if (top) top->is_addr = 1;
+            if (top) {
+                if (top->kind == VK_ADDR_HL) {
+                    /* Already an address */
+                } else if (top->kind == VK_GLOBAL && !top->is_addr) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "hl,(%s)", top->sym);
+                    emit_instr(cc, "ld", buf);
+                    vsp--;
+                    vpush(VK_ADDR_HL, NULL, 0, top->type);
+                } else if (top->kind == VK_HL && !top->is_addr) {
+                    top->kind = VK_ADDR_HL;
+                } else {
+                    top->is_addr = 1;
+                }
+            }
             break;
         }
         case '+': case '-': {
@@ -3155,6 +3186,31 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "or", "a");
                     emit_instr(cc, "sbc", "hl,de");
                     vpush(VK_HL, NULL, 0, tok[1]);
+                }
+            }
+            break;
+        }
+        case '@': {
+            /* Dereference pointer (same as ' for globals) */
+            VVal *top = vtop();
+            if (top) {
+                if (top->kind == VK_GLOBAL && !top->is_addr) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "hl,(%s)", top->sym);
+                    emit_instr(cc, "ld", buf);
+                    vsp--;
+                    vpush(VK_ADDR_HL, NULL, 0, top->type);
+                } else if (top->kind == VK_LOCAL && !top->is_addr &&
+                           top->type != 'S' && top->type != 'U') {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "l,(ix%+d)", top->value);
+                    emit_instr(cc, "ld", buf);
+                    snprintf(buf, sizeof(buf), "h,(ix%+d)", top->value + 1);
+                    emit_instr(cc, "ld", buf);
+                    vsp--;
+                    vpush(VK_ADDR_HL, NULL, 0, top->type);
+                } else {
+                    top->is_addr = 1;
                 }
             }
             break;
