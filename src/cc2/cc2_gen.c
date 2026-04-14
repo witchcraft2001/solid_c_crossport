@@ -1867,6 +1867,49 @@ static void gen_expr_stmt(Cc2State *cc)
                 }
                 break;
             }
+            if (type == 'r') {
+                /* Right-shift-assign: var >>= delta */
+                char ctype = tok[2];
+                VVal *delta = vpop();
+                VVal *var = vpop();
+                if (var && delta) {
+                    gen_load_hl(cc, var);
+                    if (delta->kind == VK_IMM && delta->value <= 7) {
+                        int n;
+                        for (n = 0; n < delta->value; n++) {
+                            emit_instr(cc, "srl", "h");
+                            emit_instr(cc, "rr", "l");
+                        }
+                    } else {
+                        gen_load_a(cc, delta);
+                        emit_instr(cc, "ld", "b,a");
+                        decl_add("?srnhb", 0);
+                        emit_instr(cc, "call", "?srnhb");
+                    }
+                    gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, ctype);
+                }
+                break;
+            }
+            if (type == '&') {
+                /* AND-assign: var &= delta */
+                char ctype = tok[2];
+                VVal *delta = vpop();
+                VVal *var = vpop();
+                if (var && delta) {
+                    gen_load_de(cc, delta);
+                    gen_load_hl(cc, var);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "and", "e");
+                    emit_instr(cc, "ld", "l,a");
+                    emit_instr(cc, "ld", "a,h");
+                    emit_instr(cc, "and", "d");
+                    emit_instr(cc, "ld", "h,a");
+                    gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, ctype);
+                }
+                break;
+            }
             if (type == '+' || type == '-') {
                 char ctype = tok[2]; /* actual type: N, C, I */
                 VVal *delta = vpop();
@@ -2399,6 +2442,46 @@ static void gen_expr_stmt(Cc2State *cc)
                 emit_instr(cc, "ld", "a,h");
                 emit_instr(cc, "or", "d");
                 emit_instr(cc, "ld", "h,a");
+                vpush(VK_HL, NULL, 0, type);
+            }
+            break;
+        }
+        case '?': {
+            /* Ternary: condition true_val false_val ?<type> */
+            char type = tok[1];
+            VVal *false_val = vpop();
+            VVal *true_val = vpop();
+            VVal *cond = vpop();
+            if (cond && true_val && false_val) {
+                if (cond->kind == VK_IMM) {
+                    if (cond->value)
+                        vstack[vsp++] = *true_val;
+                    else
+                        vstack[vsp++] = *false_val;
+                    break;
+                }
+                /* Runtime branch: flags set by previous comparison */
+                int lbl_f = cc->local_label++;
+                int lbl_e = cc->local_label++;
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "z,@%d", lbl_f);
+                    emit_instr(cc, "jp", buf);
+                }
+                gen_load_hl(cc, true_val);
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "@%d", lbl_e);
+                    emit_instr(cc, "jp", buf);
+                    snprintf(buf, sizeof(buf), "@%d", lbl_f);
+                    emit_label_instr(buf);
+                }
+                gen_load_hl(cc, false_val);
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "@%d", lbl_e);
+                    emit_label_instr(buf);
+                }
                 vpush(VK_HL, NULL, 0, type);
             }
             break;
@@ -3073,6 +3156,35 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "sbc", "hl,de");
                     vpush(VK_HL, NULL, 0, tok[1]);
                 }
+            }
+            break;
+        }
+        case 'm': {
+            /* Logical AND in jump condition (short-circuit).
+             * Emit conditional jump for current comparison, then
+             * evaluate next condition. With 'n' (negate), the AND
+             * becomes: if !cond1, jump to exit; if !cond2, jump to exit.
+             * So for each sub-condition, emit jp to target on failure. */
+            if (cmp_op) {
+                char jbuf2[64];
+                /* For AND with negate: each condition failure → jump to target.
+                 * The negation of (A AND B) = (!A OR !B) = jump if any fails. */
+                switch (cmp_op) {
+                case '=':
+                    snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label);
+                    break;
+                case '!':
+                    snprintf(jbuf2, sizeof(jbuf2), "z,@%d", target_label);
+                    break;
+                case '<':
+                    snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", target_label);
+                    break;
+                default:
+                    snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label);
+                    break;
+                }
+                emit_instr(cc, "jp", jbuf2);
+                cmp_op = 0; /* reset for next condition */
             }
             break;
         }
