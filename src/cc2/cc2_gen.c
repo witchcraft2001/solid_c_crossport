@@ -141,6 +141,7 @@ static int   func_has_locals;   /* has locals requiring stack frame */
 static int   func_frame_bytes;  /* total stack bytes for locals */
 static char  func_ret_type;     /* return type char */
 static int   func_has_return;   /* has explicit return statement */
+static int   func_epilogue_label; /* @N label for shared epilogue (-1 if none) */
 
 /* ================================================================
  *  Value stack for expression evaluation (code-generating)
@@ -472,7 +473,7 @@ static void eval_format(ExprVal *v, char *buf, int maxlen, int use_hl)
         else
             snprintf(buf, maxlen, "%s,%s", reg, v->sym);
     } else {
-        snprintf(buf, maxlen, "%s,%d", reg, v->offset);
+        snprintf(buf, maxlen, "%s,%d", reg, v->offset & 0xFFFF);
     }
 }
 
@@ -611,8 +612,8 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
                 a->offset -= b->offset;
                 eval_push(a);
             }
-        } else if (ch == 'A') {
-            /* Local variable reference in func call arg */
+        } else if (ch == 'A' || ch == 'P') {
+            /* Local/param variable reference in func call arg */
             char buf[128];
             tmc_read_token(cc, buf, sizeof(buf));
             int id = atoi(buf);
@@ -957,6 +958,44 @@ static int expr_read_tok(Cc2State *cc, char *buf, int maxlen)
     }
     buf[len] = '\0';
     return (u8)buf[0];
+}
+
+/* ================================================================
+ *  Unified expression token handler
+ *  Processes one TMC expression token and updates vstack[].
+ *  Returns the first char, or 0 if it consumed the rest of line
+ *  (e.g. function call via parse_func_call).
+ * ================================================================ */
+static int eval_one_token(Cc2State *cc, int first, const char *tok)
+{
+    switch (first) {
+    case '_': {
+        /* Negate: _I, _N */
+        VVal *top = vtop();
+        if (top) {
+            if (top->kind == VK_IMM) {
+                top->value = -top->value;
+            } else {
+                gen_load_hl(cc, top); vsp--;
+                emit_instr(cc, "ex", "de,hl");
+                emit_instr(cc, "ld", "hl,0");
+                emit_instr(cc, "or", "a");
+                emit_instr(cc, "sbc", "hl,de");
+                vpush(VK_HL, NULL, 0, tok[1]);
+            }
+        }
+        break;
+    }
+    case '@': {
+        /* Address-of for arrays/pointers */
+        VVal *top = vtop();
+        if (top) top->is_addr = 1;
+        break;
+    }
+    default:
+        return -1; /* not handled here */
+    }
+    return first;
 }
 
 /* Generate code for one expression statement line.
@@ -1474,7 +1513,8 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         default:
-            /* Unknown token, skip */
+            /* Try unified handler for _, @, etc. */
+            eval_one_token(cc, first, tok);
             break;
         }
     }
@@ -1725,89 +1765,13 @@ static void gen_cond_jump(Cc2State *cc)
     emit_instr(cc, "jp", jbuf);
 }
 
-/* Generate return value: y<type>\t<expr> */
+/* Generate return value: y<type>\t<expr>
+ * Reuses the same expression dispatch as gen_expr_stmt. */
 static void gen_return_stmt(Cc2State *cc)
 {
     char rtype = (char)tmc_read_char(cc);
-    /* Read the expression */
-    vsp = 0;
-    char tok[128];
-    for (;;) {
-        int first = expr_read_tok(cc, tok, sizeof(tok));
-        if (first == 0) break;
-        /* Minimal expression handling for return */
-        switch (first) {
-        case 'A': case 'P': {
-            int id = atoi(tok + 1);
-            LocalVar *lv = find_local(id);
-            if (lv) vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
-            break;
-        }
-        case 'G': {
-            char asmn[128];
-            make_asm_name(tok + 1, asmn, sizeof(asmn));
-            vpush(VK_GLOBAL, asmn, 0, 'N');
-            break;
-        }
-        case '#': {
-            vpush(VK_IMM, NULL, atoi(tok + 1), 'N');
-            break;
-        }
-        case 'N': case 'C': case 'I': {
-            /* Type conversion */
-            char from = tok[0], to = tok[1];
-            VVal *top = vtop();
-            if (top) {
-                if (from == 'N' && to == 'C') {
-                    gen_load_hl(cc, top); vsp--;
-                    emit_instr(cc, "ld", "a,l");
-                    vpush(VK_A, NULL, 0, 'C');
-                } else if ((from == 'C' && to == 'N') || (from == 'C' && to == 'I')) {
-                    gen_load_a(cc, top); vsp--;
-                    emit_instr(cc, "ld", "l,a");
-                    emit_instr(cc, "ld", "h,0");
-                    vpush(VK_HL, NULL, 0, to);
-                } else if ((from == 'N' && to == 'I') || (from == 'I' && to == 'N')) {
-                    top->type = to;
-                }
-            }
-            break;
-        }
-        case '+': case '-': {
-            char type = tok[1];
-            VVal *b = vpop();
-            VVal *a = vpop();
-            if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
-                gen_load_hl(cc, a);
-                if (first == '+') emit_instr(cc, "add", "hl,de");
-                else { emit_instr(cc, "or", "a"); emit_instr(cc, "sbc", "hl,de"); }
-                vpush(VK_HL, NULL, 0, type);
-            }
-            break;
-        }
-        case '^': {
-            VVal *b = vpop();
-            VVal *a = vpop();
-            if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
-                gen_load_hl(cc, a);
-                emit_instr(cc, "ld", "a,l");
-                emit_instr(cc, "xor", "e");
-                emit_instr(cc, "ld", "l,a");
-                emit_instr(cc, "ld", "a,h");
-                emit_instr(cc, "xor", "d");
-                emit_instr(cc, "ld", "h,a");
-                vpush(VK_HL, NULL, 0, tok[1]);
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    }
+    /* Use gen_expr_stmt to evaluate the expression */
+    gen_expr_stmt(cc);
 
     /* Load result into return register */
     if (vsp > 0) {
@@ -1892,6 +1856,16 @@ static void parse_function_body(Cc2State *cc)
             if (ch == 'y') {
                 /* Return statement: y<type>\t<expr> */
                 gen_return_stmt(cc);
+                /* Emit early return: jp to epilogue or ret */
+                if (func_has_locals && func_frame_bytes > 0) {
+                    if (func_epilogue_label < 0)
+                        func_epilogue_label = cc->local_label++;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "@%d", func_epilogue_label);
+                    emit_instr(cc, "jp", buf);
+                } else {
+                    emit_instr(cc, "ret", "");
+                }
                 continue;
             }
 
@@ -2185,6 +2159,7 @@ static void parse_function(Cc2State *cc)
     loop_depth = 0;
     func_ret_type = ret_type;
     func_has_return = 0;
+    func_epilogue_label = -1;
     memset(label_map, -1, sizeof(label_map));
 
     /* Read local variable declarations (A<n> at start of body) */
@@ -2196,7 +2171,8 @@ static void parse_function(Cc2State *cc)
             if (next == '\t') {
                 int peek = tmc_peek_char(cc);
                 if (peek == 'S' || peek == 'N' || peek == 'I' ||
-                    peek == 'C' || peek == 'R' || peek == 'U') {
+                    peek == 'C' || peek == 'R' || peek == 'U' ||
+                    peek == 'V') {
                     char type_buf[32];
                     tmc_read_token(cc, type_buf, sizeof(type_buf));
                     tmc_skip_line(cc);
@@ -2208,6 +2184,17 @@ static void parse_function(Cc2State *cc)
                         if (type_buf[0] == 'S') {
                             locals[local_count].struct_num = atoi(type_buf + 1);
                             locals[local_count].size = lookup_struct_size(cc, locals[local_count].struct_num);
+                        } else if (type_buf[0] == 'V') {
+                            int vnum = atoi(type_buf + 1);
+                            int sz = 0, vi;
+                            for (vi = 0; vi < cc->sym_count; vi++) {
+                                if (cc->sym[vi].type == SYM_VAR &&
+                                    cc->sym[vi].name == (u16)vnum) {
+                                    sz = cc->sym[vi].value;
+                                    break;
+                                }
+                            }
+                            locals[local_count].size = sz > 0 ? sz : 2;
                         } else {
                             locals[local_count].size = type_size(type_buf[0]);
                         }
@@ -2228,6 +2215,10 @@ static void parse_function(Cc2State *cc)
             }
             tmc_pushback(cc, 'A');
             break;
+        } else if (ch == 'V') {
+            /* V declaration inside function body — parse it */
+            parse_varsize(cc);
+            continue;
         } else if (ch == '\t' || ch == '}' || ch == 'L' || ch == 'd') {
             tmc_pushback(cc, ch);
             break;
@@ -2270,6 +2261,11 @@ static void parse_function(Cc2State *cc)
         func_frame_bytes = offset;
     }
 
+    /* Add public declaration BEFORE body parsing (so it comes before extrns) */
+    if (is_extern) {
+        decl_add(asmname, 1);
+    }
+
     /* Parse function body - collects string constants and instructions */
     parse_function_body(cc);
 
@@ -2290,16 +2286,36 @@ static void parse_function(Cc2State *cc)
         out_instruction(cc, "push", "ix");
         out_instruction(cc, "ld", "ix,0");
         out_instruction(cc, "add", "ix,sp");
-        /* Allocate stack space: push bc for each 2 bytes */
-        int pushes = (func_frame_bytes + 1) / 2;
-        int i;
-        for (i = 0; i < pushes; i++) {
-            out_instruction(cc, "push", "bc");
+
+        /* Allocate stack space for locals */
+        if (func_frame_bytes <= 12) {
+            /* Small frames: use push bc (2 bytes per push) */
+            int pushes = (func_frame_bytes + 1) / 2;
+            int i;
+            for (i = 0; i < pushes; i++) {
+                out_instruction(cc, "push", "bc");
+            }
+        } else {
+            /* Large frames: use ld hl,65536-N / add hl,sp / ld sp,hl */
+            char buf[32];
+            snprintf(buf, sizeof(buf), "hl,%d", (65536 - func_frame_bytes) & 0xFFFF);
+            out_instruction(cc, "ld", buf);
+            out_instruction(cc, "add", "hl,sp");
+            out_instruction(cc, "ld", "sp,hl");
         }
     }
 
     /* Emit generated instructions */
     flush_instructions(cc);
+
+    /* Epilogue label (shared target for early returns) */
+    if (func_epilogue_label >= 0) {
+        char lbuf[32];
+        snprintf(lbuf, sizeof(lbuf), "@%d", func_epilogue_label);
+        io_write_str(cc, lbuf);
+        io_write_byte(cc, ':');
+        io_write_newline(cc);
+    }
 
     /* Epilogue + return */
     if (func_has_locals && func_frame_bytes > 0) {
@@ -2311,10 +2327,6 @@ static void parse_function(Cc2State *cc)
     /* Emit function footer */
     out_comment(cc, "}");
 
-    /* Add public declaration if external */
-    if (is_extern) {
-        decl_add(asmname, 1);
-    }
 
     (void)ret_type;
 }
@@ -2372,9 +2384,7 @@ void gen_process_file(Cc2State *cc)
         for (i = 0; i < decl_count; i++) {
             if (decl_list[i].is_public)
                 out_public(cc, decl_list[i].name);
-        }
-        for (i = 0; i < decl_count; i++) {
-            if (!decl_list[i].is_public)
+            else
                 out_extrn(cc, decl_list[i].name);
         }
     }
