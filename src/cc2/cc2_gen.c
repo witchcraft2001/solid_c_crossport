@@ -150,6 +150,16 @@ static int   func_frame_bytes;  /* total stack bytes for locals */
 static char  func_ret_type;     /* return type char */
 static int   func_has_return;   /* has explicit return statement */
 static int   func_epilogue_label; /* @N label for shared epilogue (-1 if none) */
+static int   func_is_simple;   /* 1 if simple function (no locals/params) */
+
+/* ================================================================
+ *  Array subscript base tracking (for R....*R...' pattern)
+ * ================================================================ */
+static int   rbase_active;      /* 1 = pending R base to add after *R */
+static int   rbase_kind;        /* VK_LOCAL, VK_GLOBAL, VK_DE, etc. */
+static int   rbase_value;       /* ix_offset for local */
+static char  rbase_sym[64];     /* symbol for global */
+static int   rbase_is_addr;     /* base had is_addr set */
 
 /* ================================================================
  *  Value stack for expression evaluation (code-generating)
@@ -181,6 +191,17 @@ typedef struct {
 
 static VVal vstack[VSTACK_MAX];
 static int  vsp;
+
+/* ================================================================
+ *  Inline function call state (for calls within gen_expr_stmt)
+ * ================================================================ */
+#define ICALL_MAX_ARGS 16
+static char  icall_name[128];       /* function name (before asm conversion) */
+static int   icall_active;          /* 1 = currently collecting call args */
+static VVal  icall_args[ICALL_MAX_ARGS]; /* collected arguments */
+static char  icall_arg_types[ICALL_MAX_ARGS]; /* arg push types: R, I, C, N */
+static int   icall_nargs;           /* number of args collected */
+static char  icall_ret_type;        /* return type from c<type> */
 
 /* ================================================================
  *  Name table operations
@@ -769,6 +790,10 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
             if (buf[0] == 'S') {
                 int snum = atoi(buf + 1);
                 v.offset = lookup_struct_size(cc, snum);
+            } else if (buf[0] == 'C') {
+                v.offset = 1;
+            } else if (buf[0] == 'R' || buf[0] == 'N' || buf[0] == 'I') {
+                v.offset = 2;
             } else {
                 v.offset = atoi(buf);
             }
@@ -1019,6 +1044,13 @@ static void gen_load_hl(Cc2State *cc, VVal *v)
                  str_consts[v->str_idx].label);
         emit_instr(cc, "ld", buf);
         break;
+    case VK_ADDR_HL:
+        /* HL holds an address — dereference to get 16-bit value */
+        emit_instr(cc, "ld", "a,(hl)");
+        emit_instr(cc, "inc", "hl");
+        emit_instr(cc, "ld", "h,(hl)");
+        emit_instr(cc, "ld", "l,a");
+        break;
     default:
         snprintf(buf, sizeof(buf), "hl,0");
         emit_instr(cc, "ld", buf);
@@ -1053,6 +1085,10 @@ static void gen_load_a(Cc2State *cc, VVal *v)
         break;
     case VK_BC:
         emit_instr(cc, "ld", "a,c");
+        break;
+    case VK_ADDR_HL:
+        /* HL holds address — dereference to get byte */
+        emit_instr(cc, "ld", "a,(hl)");
         break;
     default:
         emit_instr(cc, "xor", "a");
@@ -1150,6 +1186,161 @@ static void gen_store_a(Cc2State *cc, VVal *dest)
     }
 }
 
+/* Emit: ld bc,<16-bit value from VVal> */
+static void gen_load_bc(Cc2State *cc, VVal *v)
+{
+    char buf[128];
+    switch (v->kind) {
+    case VK_IMM:
+        snprintf(buf, sizeof(buf), "bc,%d", v->value & 0xFFFF);
+        emit_instr(cc, "ld", buf);
+        break;
+    case VK_LOCAL:
+        snprintf(buf, sizeof(buf), "c,(ix%+d)", v->value);
+        emit_instr(cc, "ld", buf);
+        snprintf(buf, sizeof(buf), "b,(ix%+d)", v->value + 1);
+        emit_instr(cc, "ld", buf);
+        break;
+    case VK_BC:
+        break;
+    case VK_HL:
+        emit_instr(cc, "ld", "c,l");
+        emit_instr(cc, "ld", "b,h");
+        break;
+    case VK_DE:
+        emit_instr(cc, "ld", "c,e");
+        emit_instr(cc, "ld", "b,d");
+        break;
+    case VK_STRING:
+        snprintf(buf, sizeof(buf), "bc,?%d", str_consts[v->str_idx].label);
+        emit_instr(cc, "ld", buf);
+        break;
+    default:
+        emit_instr(cc, "ld", "bc,0");
+        break;
+    }
+}
+
+/* Compute SP-relative offset for a local variable */
+static int sp_relative_offset(int ix_offset, int extra_pushes)
+{
+    /* After prologue: SP = IX - func_frame_bytes
+     * Variable at IX + ix_offset → SP + (func_frame_bytes + ix_offset)
+     * Each pending push adds 2 to the adjustment */
+    return func_frame_bytes + ix_offset + extra_pushes * 2;
+}
+
+/* ================================================================
+ *  Inline function call code generation
+ *
+ *  Generates Z80 code for a function call collected by gen_expr_stmt.
+ *  Handles U-type (varargs) and F-type (register args) calls.
+ * ================================================================ */
+static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, int arg_count)
+{
+    int i;
+
+    if (call_type == 'U') {
+        /* Varargs: push args in reverse, HL = count, call, pop */
+        int pushes = 0;
+        for (i = icall_nargs - 1; i >= 0; i--) {
+            VVal *arg = &icall_args[i];
+            char atype = icall_arg_types[i];
+
+            if (arg->is_addr && arg->kind == VK_LOCAL) {
+                /* Address of local array: ld hl,<sp_off> / add hl,sp / push hl */
+                int sp_off = sp_relative_offset(arg->value, pushes);
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", sp_off);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,sp");
+                emit_instr(cc, "push", "hl");
+                pushes++;
+            } else if (arg->is_addr && arg->kind == VK_STRING) {
+                /* String address: ld bc,?label / push bc */
+                char buf[128];
+                snprintf(buf, sizeof(buf), "bc,?%d", str_consts[arg->str_idx].label);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "push", "bc");
+                pushes++;
+            } else if (atype == 'C') {
+                /* Char arg: load byte, push as 16-bit */
+                if (arg->kind == VK_LOCAL) {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "c,(ix%+d)", arg->value);
+                    emit_instr(cc, "ld", buf);
+                } else {
+                    gen_load_a(cc, arg);
+                    emit_instr(cc, "ld", "c,a");
+                }
+                emit_instr(cc, "push", "bc");
+                pushes++;
+            } else {
+                /* 16-bit value: load into bc, push */
+                gen_load_bc(cc, arg);
+                emit_instr(cc, "push", "bc");
+                pushes++;
+            }
+        }
+        {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "hl,%d", arg_count);
+            emit_instr(cc, "ld", buf);
+        }
+        emit_instr(cc, "call", asmname);
+        for (i = 0; i < pushes; i++) {
+            emit_instr(cc, "pop", "bc");
+        }
+    } else { /* F-type */
+        if (arg_count == 0) {
+            emit_instr(cc, "call", asmname);
+        } else if (arg_count == 1 && icall_nargs >= 1) {
+            VVal *a0 = &icall_args[0];
+            if (icall_arg_types[0] == 'C') {
+                gen_load_a(cc, a0);
+            } else if (a0->is_addr && a0->kind == VK_LOCAL) {
+                /* Address of local: ld hl,sp_off / add hl,sp */
+                int sp_off = sp_relative_offset(a0->value, 0);
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", sp_off);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,sp");
+            } else {
+                gen_load_hl(cc, a0);
+            }
+            emit_instr(cc, "call", asmname);
+        } else if (arg_count == 2 && icall_nargs >= 2) {
+            VVal *a0 = &icall_args[0];
+            VVal *a1 = &icall_args[1];
+            /* Load second arg into DE first (so HL is free for first) */
+            gen_load_de(cc, a1);
+            gen_load_hl(cc, a0);
+            emit_instr(cc, "call", asmname);
+        } else if (arg_count == 3 && icall_nargs >= 3) {
+            VVal *a0 = &icall_args[0];
+            VVal *a1 = &icall_args[1];
+            VVal *a2 = &icall_args[2];
+            /* Load in order: BC (3rd), DE (2nd), HL (1st) */
+            gen_load_bc(cc, a2);
+            if (a1->is_addr && a1->kind == VK_LOCAL) {
+                int sp_off = sp_relative_offset(a1->value, 0);
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", sp_off);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,sp");
+                emit_instr(cc, "ex", "de,hl");
+            } else {
+                gen_load_de(cc, a1);
+            }
+            gen_load_hl(cc, a0);
+            emit_instr(cc, "call", asmname);
+        } else {
+            /* Fallback: just call */
+            emit_instr(cc, "call", asmname);
+        }
+    }
+}
+
 /* Check if function body has only simple function calls (no expressions) */
 static int body_is_simple(Cc2State *cc)
 {
@@ -1180,7 +1371,7 @@ static int expr_read_tok(Cc2State *cc, char *buf, int maxlen)
     }
     buf[0] = (char)ch;
     /* Some tokens are single char */
-    if (ch == '.' || ch == '\'' || ch == 'a' || ch == 'n') {
+    if (ch == '.' || ch == '\'' || ch == 'a' || ch == 'n' || ch == '"') {
         buf[1] = '\0';
         return ch;
     }
@@ -1278,12 +1469,14 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case '#': {
-            /* Immediate constant or #S<n> or #C */
+            /* Immediate constant or type size: #C=1, #R=2, #N=2, #I=2, #S<n>=struct size */
             int val;
             if (tok[1] == 'S') {
                 val = lookup_struct_size(cc, atoi(tok + 2));
             } else if (tok[1] == 'C') {
                 val = 1; /* sizeof(char) */
+            } else if (tok[1] == 'R' || tok[1] == 'N' || tok[1] == 'I') {
+                val = 2; /* sizeof(int/ptr) = 2 bytes on Z80 */
             } else {
                 val = atoi(tok + 1);
             }
@@ -1319,25 +1512,84 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case '\'': {
-            /* Address-of */
+            /* Dereference/address marker.
+             * For VK_ADDR_HL: HL already holds the computed address.
+             * For other kinds: mark as "address" (lvalue for assignment). */
             VVal *top = vtop();
-            if (top) top->is_addr = 1;
+            if (top) {
+                if (top->kind == VK_ADDR_HL) {
+                    /* Already an address in HL — keep as VK_ADDR_HL.
+                     * The consumer (:C, :N, pR, etc.) will handle load/store. */
+                } else {
+                    top->is_addr = 1;
+                }
+            }
             break;
         }
         case ':': {
-            /* Assignment: :C, :N, :I */
+            /* Assignment: :C, :N, :I
+             * Handles VK_ADDR_HL (indirect memory access) for both src and dest. */
             char type = tok[1];
             VVal *value = vpop();
             VVal *dest = vpop();
             if (value && dest) {
                 if (type == 'C') {
-                    gen_load_a(cc, value);
-                    gen_store_a(cc, dest);
-                    vpush(VK_A, NULL, 0, 'C');
+                    /* Char assignment */
+                    if (value->kind == VK_ADDR_HL && dest->kind == VK_STACK) {
+                        /* RHS addr in HL, LHS addr saved on hardware stack */
+                        emit_instr(cc, "ld", "a,(hl)");  /* load src byte */
+                        emit_instr(cc, "pop", "hl");      /* restore dest addr */
+                        emit_instr(cc, "ld", "(hl),a");   /* store */
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else if (value->kind == VK_ADDR_HL && dest->kind == VK_ADDR_HL) {
+                        /* Both in HL — shouldn't happen with save logic, but handle */
+                        emit_instr(cc, "ld", "a,(hl)");
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else if (value->kind == VK_ADDR_HL) {
+                        /* Source is indirect: load byte from (HL) */
+                        emit_instr(cc, "ld", "a,(hl)");
+                        gen_store_a(cc, dest);
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else if (dest->kind == VK_ADDR_HL) {
+                        /* Dest is indirect: store byte to (HL) */
+                        gen_load_a(cc, value);
+                        emit_instr(cc, "ld", "(hl),a");
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else {
+                        gen_load_a(cc, value);
+                        gen_store_a(cc, dest);
+                        vpush(VK_A, NULL, 0, 'C');
+                    }
                 } else {
-                    gen_load_hl(cc, value);
-                    gen_store_hl(cc, dest);
-                    vpush(VK_HL, NULL, 0, type);
+                    /* 16-bit assignment */
+                    if (value->kind == VK_ADDR_HL && dest->kind == VK_ADDR_HL) {
+                        /* Both indirect — complex case */
+                        emit_instr(cc, "ld", "a,(hl)");
+                        emit_instr(cc, "inc", "hl");
+                        emit_instr(cc, "ld", "h,(hl)");
+                        emit_instr(cc, "ld", "l,a");
+                        /* value now in HL, dest address lost — need to handle */
+                        vpush(VK_HL, NULL, 0, type);
+                    } else if (value->kind == VK_ADDR_HL) {
+                        /* Source is indirect: load 16-bit from (HL) */
+                        emit_instr(cc, "ld", "a,(hl)");
+                        emit_instr(cc, "inc", "hl");
+                        emit_instr(cc, "ld", "h,(hl)");
+                        emit_instr(cc, "ld", "l,a");
+                        gen_store_hl(cc, dest);
+                        vpush(VK_HL, NULL, 0, type);
+                    } else if (dest->kind == VK_ADDR_HL) {
+                        /* Dest is indirect: store 16-bit to (HL) */
+                        gen_load_de(cc, value);
+                        emit_instr(cc, "ld", "(hl),e");
+                        emit_instr(cc, "inc", "hl");
+                        emit_instr(cc, "ld", "(hl),d");
+                        vpush(VK_DE, NULL, 0, type);
+                    } else {
+                        gen_load_hl(cc, value);
+                        gen_store_hl(cc, dest);
+                        vpush(VK_HL, NULL, 0, type);
+                    }
                 }
             }
             break;
@@ -1414,8 +1666,80 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                if (type == 'R') {
-                    /* Array element size multiply */
+                if (type == 'R' && rbase_active) {
+                    /* Array subscript: index * element_size + base
+                     * a = index, b = element size, rbase_* = saved base */
+                    int need_add_base = 1;
+                    int sp_push_adj = 0;
+
+                    /* Save any existing VK_ADDR_HL on vstack to hardware stack
+                     * (happens when LHS array addr is computed before RHS) */
+                    {
+                        int k;
+                        for (k = 0; k < vsp; k++) {
+                            if (vstack[k].kind == VK_ADDR_HL) {
+                                emit_instr(cc, "push", "hl");
+                                vstack[k].kind = VK_STACK;
+                                sp_push_adj = 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (b->kind == VK_IMM && b->value == 1) {
+                        /* Element size 1: just use index as-is */
+                        gen_load_hl(cc, a);
+                    } else {
+                        /* Multiply index by element size */
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "push", "hl");
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "pop", "de");
+                        emit_instr(cc, "ex", "de,hl");
+                        decl_add("?mulhd", 0);
+                        emit_instr(cc, "call", "?mulhd");
+                    }
+
+                    /* Now add the base address */
+                    if (rbase_kind == VK_LOCAL) {
+                        /* Local array: compute SP-relative address */
+                        int sp_off = sp_relative_offset(rbase_value, sp_push_adj);
+                        emit_instr(cc, "push", "hl");
+                        {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "hl,%d", sp_off + 2); /* +2 for our push */
+                            emit_instr(cc, "ld", buf);
+                        }
+                        emit_instr(cc, "add", "hl,sp");
+                        emit_instr(cc, "pop", "de");
+                        emit_instr(cc, "add", "hl,de");
+                        need_add_base = 0;
+                    } else if (rbase_kind == VK_DE) {
+                        emit_instr(cc, "add", "hl,de");
+                        need_add_base = 0;
+                    } else if (rbase_kind == VK_HL) {
+                        /* HL conflict: save index, load base, add */
+                        emit_instr(cc, "ex", "de,hl");
+                        /* base was in HL but we overwrote it... need different strategy */
+                        /* For now, just add DE (the index) */
+                        emit_instr(cc, "add", "hl,de");
+                        need_add_base = 0;
+                    } else if (rbase_kind == VK_GLOBAL) {
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "de,%s", rbase_sym);
+                        emit_instr(cc, "ld", buf);
+                        emit_instr(cc, "add", "hl,de");
+                        need_add_base = 0;
+                    } else if (rbase_kind == VK_BC) {
+                        emit_instr(cc, "add", "hl,bc");
+                        need_add_base = 0;
+                    }
+
+                    rbase_active = 0;
+                    vpush(VK_ADDR_HL, NULL, 0, 'R');
+                    (void)need_add_base;
+                } else if (type == 'R') {
+                    /* Fallback: plain *R without base tracking */
                     if (b->kind == VK_IMM && b->value == 1) {
                         vstack[vsp++] = *a;
                     } else {
@@ -1598,24 +1922,22 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case 'R': {
-            /* Array element: R<type> pops index and base */
-            /* RN/RI/RC → pop index, pop base global, push combined */
+            /* Array subscript: pops index and base, saves base for *R to add later.
+             * The pattern is: base index R<type> #<size> *R ['] */
             VVal *idx = vpop();
             VVal *base = vpop();
             if (base && idx) {
-                /* base should be global, idx is the index value */
-                /* Result: base_addr + idx (will be multiplied by *R later) */
-                gen_load_hl(cc, idx);
-                if (base->kind == VK_GLOBAL) {
-                    char buf[128];
-                    snprintf(buf, sizeof(buf), "de,%s", base->sym);
-                    /* For array access, we need: HL = base + index */
-                    /* But multiply by element size happens with *R next */
-                    /* For now, just push both for *R to handle */
-                    vpush(VK_HL, base->sym, 0, tok[1]);
-                } else {
-                    vpush(VK_HL, NULL, 0, tok[1]);
-                }
+                /* Save base info for the upcoming *R handler */
+                rbase_active = 1;
+                rbase_kind = base->kind;
+                rbase_value = base->value;
+                rbase_is_addr = base->is_addr;
+                if (base->sym[0])
+                    strncpy(rbase_sym, base->sym, sizeof(rbase_sym) - 1);
+                else
+                    rbase_sym[0] = '\0';
+                /* Push index value (will be multiplied by *R) */
+                vstack[vsp++] = *idx;
             }
             break;
         }
@@ -1712,15 +2034,23 @@ static void gen_expr_stmt(Cc2State *cc)
         }
         case 'X': {
             /* Function call within expression */
-            char fname[128];
-            strncpy(fname, tok + 1, sizeof(fname) - 1);
-            fname[sizeof(fname) - 1] = '\0';
-            /* Use parse_func_call for the rest of the line */
-            /* But we need to handle the result */
-            parse_func_call(cc, fname);
-            /* Result is in HL (for int) or A (for char) */
-            vpush(VK_HL, NULL, 0, 'N');
-            break; /* parse_func_call already consumed the line */
+            if (func_is_simple) {
+                /* Simple function: use symbolic evaluator */
+                char fname[128];
+                strncpy(fname, tok + 1, sizeof(fname) - 1);
+                fname[sizeof(fname) - 1] = '\0';
+                parse_func_call(cc, fname);
+                vpush(VK_HL, NULL, 0, 'N');
+            } else {
+                /* Complex function: handle inline using vstack */
+                strncpy(icall_name, tok + 1, sizeof(icall_name) - 1);
+                icall_name[sizeof(icall_name) - 1] = '\0';
+                icall_active = 1;
+                icall_nargs = 0;
+                icall_ret_type = 'I';
+                /* Don't push result yet — F/U handler will do it */
+            }
+            break;
         }
         case '"': {
             /* String constant */
@@ -1743,15 +2073,39 @@ static void gen_expr_stmt(Cc2State *cc)
         }
         case 'p': {
             /* Push for function arg: pR, pI, pC, pN */
-            /* This is handled by parse_func_call */
+            if (icall_active) {
+                VVal *val = vpop();
+                if (val && icall_nargs < ICALL_MAX_ARGS) {
+                    icall_args[icall_nargs] = *val;
+                    icall_arg_types[icall_nargs] = tok[1];
+                    icall_nargs++;
+                }
+            }
             break;
         }
         case 'c': {
             /* Return type for function call */
+            if (icall_active) {
+                icall_ret_type = tok[1];
+            }
             break;
         }
         case 'F': case 'U': {
-            /* Call type - handled by parse_func_call */
+            /* Generate function call */
+            if (icall_active) {
+                int ac = atoi(tok + 1);
+                char asmname[128];
+                make_asm_name(icall_name, asmname, sizeof(asmname));
+                decl_add(asmname, 0);
+                gen_inline_call(cc, asmname, first, ac);
+                /* Push result on vstack */
+                if (icall_ret_type == 'C') {
+                    vpush(VK_A, NULL, 0, 'C');
+                } else {
+                    vpush(VK_HL, NULL, 0, icall_ret_type);
+                }
+                icall_active = 0;
+            }
             break;
         }
         default:
@@ -1817,6 +2171,7 @@ static void gen_cond_jump(Cc2State *cc)
             int val;
             if (tok[1] == 'S') val = lookup_struct_size(cc, atoi(tok + 2));
             else if (tok[1] == 'C') val = 1;
+            else if (tok[1] == 'R' || tok[1] == 'N' || tok[1] == 'I') val = 2;
             else val = atoi(tok + 1);
             vpush(VK_IMM, NULL, val, 'N');
             break;
@@ -2039,7 +2394,7 @@ static void gen_return_stmt(Cc2State *cc)
 static void parse_function_body(Cc2State *cc)
 {
     int ch;
-    int is_simple = body_is_simple(cc);
+    func_is_simple = body_is_simple(cc);
 
     for (;;) {
         ch = tmc_read_char(cc);
@@ -2060,7 +2415,7 @@ static void parse_function_body(Cc2State *cc)
         if (ch == '\t') {
             ch = tmc_read_char(cc);
 
-            if (ch == 'X' && is_simple) {
+            if (ch == 'X' && func_is_simple) {
                 /* Function call — use simple symbolic evaluator */
                 char func_name[128];
                 tmc_read_token(cc, func_name, sizeof(func_name));
@@ -2116,11 +2471,16 @@ static void parse_function_body(Cc2State *cc)
             }
 
             if (ch == 'X') {
-                /* Function call within complex body */
-                char func_name[128];
-                tmc_read_token(cc, func_name, sizeof(func_name));
-                /* For now, use simple func call parser */
-                parse_func_call(cc, func_name);
+                if (func_is_simple) {
+                    /* Simple: use symbolic evaluator */
+                    char func_name[128];
+                    tmc_read_token(cc, func_name, sizeof(func_name));
+                    parse_func_call(cc, func_name);
+                } else {
+                    /* Complex: route through gen_expr_stmt for inline handling */
+                    tmc_pushback(cc, ch);
+                    gen_expr_stmt(cc);
+                }
                 continue;
             }
 
