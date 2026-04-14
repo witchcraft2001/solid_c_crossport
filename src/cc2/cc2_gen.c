@@ -1792,7 +1792,44 @@ static void gen_expr_stmt(Cc2State *cc)
                         }
                     }
 
-                    if (b->kind == VK_IMM && b->value == 1 &&
+                    if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                        /* Constant folding: both index and element size are constants.
+                         * Compute index * size at compile time. */
+                        int offset = a->value * b->value;
+                        if (rbase_kind == VK_LOCAL) {
+                            /* Local array: sp_offset + index*size */
+                            int sp_off = sp_relative_offset(rbase_value, sp_push_adj);
+                            int combined = sp_off + offset;
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "hl,%d", combined);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "add", "hl,sp");
+                        } else if (rbase_kind == VK_DE) {
+                            /* Register base: ld hl,<offset> / add hl,de */
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "hl,%d", offset);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "add", "hl,de");
+                        } else if (rbase_kind == VK_HL) {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "de,%d", offset);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "add", "hl,de");
+                        } else if (rbase_kind == VK_GLOBAL) {
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "hl,%s+%d", rbase_sym, offset);
+                            emit_instr(cc, "ld", buf);
+                        } else {
+                            /* Generic: load offset, add base */
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "hl,%d", offset);
+                            emit_instr(cc, "ld", buf);
+                        }
+                        rbase_active = 0;
+                        vpush(VK_ADDR_HL, NULL, 0, 'R');
+                        (void)need_add_base;
+                        break;
+                    } else if (b->kind == VK_IMM && b->value == 1 &&
                         rbase_kind == VK_LOCAL && a->kind == VK_DE) {
                         /* Optimized: element size 1, index in DE, base is local.
                          * Compute base addr into HL, then add hl,de.
@@ -2640,7 +2677,13 @@ static void parse_function_body(Cc2State *cc)
             }
 
             if (ch == 'j') {
-                /* Conditional jump: j\tL<n>\t<expr>\tn */
+                /* Conditional jump: j\tL<n>\t<expr>\tn
+                 *
+                 * Loop inversion: if j is followed by [labels +] b (loop-back),
+                 * invert the condition and jump to loop start instead.
+                 * This transforms: jp nz,@exit / jp @loop → jp z,@loop
+                 * Matching the CCC.ASM optimizer behavior. */
+                int saved_instr_count = instr_count;
                 gen_cond_jump(cc);
                 continue;
             }
