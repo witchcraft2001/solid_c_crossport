@@ -1994,8 +1994,8 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
+                /* Load divisor into DE, dividend into HL */
+                gen_load_de(cc, b);
                 gen_load_hl(cc, a);
                 if (type == 'I') {
                     decl_add("?dvihd", 0);
@@ -2013,8 +2013,7 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
+                gen_load_de(cc, b);
                 gen_load_hl(cc, a);
                 if (type == 'I') {
                     decl_add("?dvihd", 0);
@@ -2424,11 +2423,16 @@ static void gen_cond_jump(Cc2State *cc)
                         emit_instr(cc, "ld", "a,d");
                         emit_instr(cc, "sbc", "a,0");
                     }
+                } else if (b->kind == VK_IMM && b->value == 0
+                           && (first == '=' || first == '!')) {
+                    /* Equality with 0: ld a,l / or h
+                     * Z flag set means HL == 0 */
+                    gen_load_hl(cc, a);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "or", "h");
                 } else if (b->kind == VK_IMM && b->value == 1
                            && (first == '=' || first == '!')) {
-                    /* Equality with 1: ld a,l / dec a / or h
-                     * If HL=1: a=1, dec→0, or h (h=0)→0 (Z)
-                     * Z flag set means HL == 1 */
+                    /* Equality with 1: ld a,l / dec a / or h */
                     gen_load_hl(cc, a);
                     emit_instr(cc, "ld", "a,l");
                     emit_instr(cc, "dec", "a");
@@ -2436,24 +2440,22 @@ static void gen_cond_jump(Cc2State *cc)
                 } else if (b->kind == VK_IMM &&
                            (b->value == -1 || b->value == 65535) &&
                            (first == '=' || first == '!')) {
-                    /* Equality with -1: ld a,l / and h / inc a
-                     * If HL=0xFFFF: a=FF, and h=FF→FF, inc→0 (Z)
-                     * So Z flag set means HL == -1 */
+                    /* Equality with -1: ld a,l / and h / inc a */
                     gen_load_hl(cc, a);
                     emit_instr(cc, "ld", "a,l");
                     emit_instr(cc, "and", "h");
                     emit_instr(cc, "inc", "a");
-                    /* For '=': Z means equal; for '!': Z means equal too */
-                    /* The jump logic below will handle negate */
-                } else if (b->kind == VK_IMM && b->value >= 0 && b->value <= 255
-                           && (first == '=' || first == '!')) {
-                    /* Equality with small constant: use ?cpshd for now */
+                } else if ((first == '!' || first == '=') &&
+                           (cmp_type == 'N' || cmp_type == 'I')) {
+                    /* Equality/inequality: or a / sbc hl,de
+                     * Z flag set if equal */
                     gen_load_hl(cc, b);
                     emit_instr(cc, "ex", "de,hl");
                     gen_load_hl(cc, a);
-                    decl_add("?cpshd", 0);
-                    emit_instr(cc, "call", "?cpshd");
+                    emit_instr(cc, "or", "a");
+                    emit_instr(cc, "sbc", "hl,de");
                 } else {
+                    /* General comparison: use ?cpshd library call */
                     gen_load_hl(cc, b);
                     emit_instr(cc, "ex", "de,hl");
                     gen_load_hl(cc, a);
