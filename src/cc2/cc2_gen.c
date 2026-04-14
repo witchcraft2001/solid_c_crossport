@@ -327,9 +327,53 @@ static void emit_comment_instr(const char *text)
     snprintf(ins->text, INSTR_BUF, "%s", text);
 }
 
+/* Peephole optimizer: remove redundant instruction sequences */
+static void peephole_optimize(void)
+{
+    int i, j;
+    /* Pass: eliminate redundant patterns */
+    for (i = 0; i < instr_count - 1; i++) {
+        Instr *a = &instr_list[i];
+        Instr *b = &instr_list[i + 1];
+
+        /* ex de,hl / ex de,hl → remove both (double swap = no-op) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "ex\tde,hl") == 0 &&
+            strcmp(b->text, "ex\tde,hl") == 0) {
+            /* Remove both by shifting remaining instructions */
+            for (j = i; j < instr_count - 2; j++)
+                instr_list[j] = instr_list[j + 2];
+            instr_count -= 2;
+            i--; /* re-check at this position */
+            continue;
+        }
+
+        /* ld l,a / ld a,l → remove ld a,l (redundant reload) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "ld\tl,a") == 0 &&
+            strcmp(b->text, "ld\ta,l") == 0) {
+            for (j = i + 1; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            continue;
+        }
+
+        /* ld a,l / ld l,a → remove ld l,a (redundant store-back) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "ld\ta,l") == 0 &&
+            strcmp(b->text, "ld\tl,a") == 0) {
+            for (j = i + 1; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            continue;
+        }
+    }
+}
+
 static void flush_instructions(Cc2State *cc)
 {
     int i;
+    peephole_optimize();
     for (i = 0; i < instr_count; i++) {
         Instr *ins = &instr_list[i];
         switch (ins->type) {
@@ -1965,13 +2009,14 @@ static void gen_expr_stmt(Cc2State *cc)
                     } else if (b->kind == VK_IMM && b->value == 1) {
                         /* Element size 1: just use index as-is */
                         gen_load_hl(cc, a);
+                    } else if (b->kind == VK_IMM && b->value == 2) {
+                        /* Element size 2: add hl,hl (shift left 1) */
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "add", "hl,hl");
                     } else {
                         /* Multiply index by element size */
                         gen_load_hl(cc, a);
-                        emit_instr(cc, "push", "hl");
-                        gen_load_hl(cc, b);
-                        emit_instr(cc, "pop", "de");
-                        emit_instr(cc, "ex", "de,hl");
+                        gen_load_de(cc, b);
                         decl_add("?mulhd", 0);
                         emit_instr(cc, "call", "?mulhd");
                     }
