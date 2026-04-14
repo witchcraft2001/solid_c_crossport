@@ -1831,18 +1831,19 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    if (b->kind == VK_IMM && a->kind == VK_HL) {
-                        /* HL already has a, just add immediate */
-                        char buf[32];
-                        snprintf(buf, sizeof(buf), "de,%d", b->value & 0xFFFF);
-                        emit_instr(cc, "ld", buf);
+                    if (b->kind == VK_IMM) {
+                        /* Constant: load to DE, first op in HL */
+                        gen_load_hl(cc, a);
+                        gen_load_de(cc, b);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (a->kind == VK_IMM) {
+                        /* Swap: constant to DE, variable to HL */
+                        gen_load_hl(cc, b);
+                        gen_load_de(cc, a);
                         emit_instr(cc, "add", "hl,de");
                     } else {
+                        gen_load_de(cc, b);
                         gen_load_hl(cc, a);
-                        emit_instr(cc, "push", "hl");
-                        gen_load_hl(cc, b);
-                        emit_instr(cc, "pop", "de");
-                        emit_instr(cc, "ex", "de,hl");
                         emit_instr(cc, "add", "hl,de");
                     }
                     vpush(VK_HL, NULL, 0, type);
@@ -1862,8 +1863,7 @@ static void gen_expr_stmt(Cc2State *cc)
                     emit_instr(cc, "sub", "e");
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     emit_instr(cc, "or", "a");
                     emit_instr(cc, "sbc", "hl,de");
@@ -2044,11 +2044,22 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    gen_load_hl(cc, a);
-                    emit_instr(cc, "push", "hl");
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "pop", "de");
-                    emit_instr(cc, "ex", "de,hl");
+                    /* 16-bit multiply: HL * DE → call ?mulhd */
+                    if (b->kind == VK_IMM) {
+                        /* Constant: load to DE directly, first op in HL */
+                        gen_load_hl(cc, a);
+                        gen_load_de(cc, b);
+                    } else if (a->kind == VK_IMM) {
+                        /* Swap: constant to DE, variable to HL */
+                        gen_load_hl(cc, b);
+                        gen_load_de(cc, a);
+                    } else {
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "push", "hl");
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "pop", "de");
+                        emit_instr(cc, "ex", "de,hl");
+                    }
                     decl_add("?mulhd", 0);
                     emit_instr(cc, "call", "?mulhd");
                     vpush(VK_HL, NULL, 0, type);
@@ -2586,11 +2597,19 @@ static void gen_cond_jump(Cc2State *cc)
                 if (tok[1] == 'R' && b->kind == VK_IMM && b->value == 1) {
                     vstack[vsp++] = *a;
                 } else {
-                    gen_load_hl(cc, a);
-                    emit_instr(cc, "push", "hl");
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "pop", "de");
-                    emit_instr(cc, "ex", "de,hl");
+                    if (b->kind == VK_IMM) {
+                        gen_load_hl(cc, a);
+                        gen_load_de(cc, b);
+                    } else if (a->kind == VK_IMM) {
+                        gen_load_hl(cc, b);
+                        gen_load_de(cc, a);
+                    } else {
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "push", "hl");
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "pop", "de");
+                        emit_instr(cc, "ex", "de,hl");
+                    }
                     decl_add("?mulhd", 0);
                     emit_instr(cc, "call", "?mulhd");
                     vpush(VK_HL, NULL, 0, tok[1]);
