@@ -547,12 +547,13 @@ static void body_count_usage(void)
 }
 
 /* ================================================================
- *  Simple register allocator
+ *  Register allocator — mirrors CCC.ASM optimizer phase 2
  *
- *  For functions where all variables are ≤2 bytes, not address-taken,
- *  and can fit in 3 register pairs (BC, DE, HL).
+ *  For frameless functions: all vars in registers, no IX frame.
+ *  For framed functions: assign DE (and optionally BC) to the
+ *  most-used scalar auto variables. Arrays/structs/addr-taken vars
+ *  stay on stack. Parameters stay on stack (saved via push hl).
  *
- *  Assigns registers based on usage priority.
  *  Modifies locals[].reg field.
  * ================================================================ */
 static void try_register_allocate(void)
@@ -563,80 +564,126 @@ static void try_register_allocate(void)
     /* Already handled: trivial functions (0 autos, ≤1 param) */
     if (auto_count == 0 && param_count <= 1) return;
 
-    /* Check all variables: must be ≤2 bytes, not address-taken, no structs */
-    for (i = 0; i < local_count; i++) {
-        if (locals[i].size > 2) return;
-        if (locals[i].type == 'S' || locals[i].type == 'U') return;
-        VarUsage *vu = find_var_usage(locals[i].id);
-        if (vu && vu->addr_taken) return;
-    }
-
-    /* All vars are register candidates. Check count fits. */
-    int used_count = 0;
-    for (i = 0; i < local_count; i++) {
-        VarUsage *vu = find_var_usage(locals[i].id);
-        if (vu && vu->count > 0) used_count++;
-    }
-
-    /* For now, only handle cases where all used vars fit in registers */
-    if (used_count > 3) return; /* BC, DE, HL = 3 pairs */
-
-    /* Assign registers to parameters based on calling convention:
-     * F1: 1st param in HL (char in A)
-     * F2+: 1st param in HL, 2nd param in DE */
+    /* === CASE 1: All vars fit in registers (frameless) === */
     {
-        int pidx = 0;
+        int all_scalar = 1;
+        int used_count = 0;
         for (i = 0; i < local_count; i++) {
-            if (locals[i].prefix == 'P') {
-                VarUsage *vu = find_var_usage(locals[i].id);
-                if (vu && vu->count > 0) {
-                    if (pidx == 0) {
-                        /* First param: HL (or A for char) */
-                        locals[i].reg = (locals[i].type == 'C') ? VK_A : VK_HL;
-                    } else if (pidx == 1) {
-                        /* Second param: DE */
-                        locals[i].reg = VK_DE;
-                    } else {
-                        return; /* 3+ used params: can't register-allocate */
-                    }
-                }
-                pidx++;
+            if (locals[i].size > 2 || locals[i].type == 'S' ||
+                locals[i].type == 'U') {
+                all_scalar = 0;
+                break;
             }
+            VarUsage *vu = find_var_usage(locals[i].id);
+            if (vu && vu->addr_taken) { all_scalar = 0; break; }
+            if (vu && vu->count > 0) used_count++;
         }
-    }
-    /* Then assign autos to remaining registers */
-    {
-        int reg_order[] = { VK_DE, VK_BC, VK_HL };
-        int reg_idx = 0;
-        for (i = 0; i < local_count; i++) {
-            if (locals[i].prefix == 'A' && locals[i].reg == VK_NONE) {
-                VarUsage *vu = find_var_usage(locals[i].id);
-                if (!vu || vu->count == 0) continue; /* unused var */
-                /* Find next available register */
-                int assigned = 0;
-                while (reg_idx < 3) {
-                    int candidate = reg_order[reg_idx];
-                    int taken = 0;
-                    int j;
-                    for (j = 0; j < local_count; j++) {
-                        if (locals[j].reg == candidate) { taken = 1; break; }
+
+        if (all_scalar && used_count <= 3) {
+            /* Assign registers: params first, then autos */
+            int pidx = 0;
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P') {
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (vu && vu->count > 0) {
+                        if (pidx == 0)
+                            locals[i].reg = (locals[i].type == 'C') ? VK_A : VK_HL;
+                        else if (pidx == 1)
+                            locals[i].reg = VK_DE;
+                        else goto partial; /* too many params */
                     }
-                    reg_idx++;
-                    if (!taken) {
-                        locals[i].reg = candidate;
-                        assigned = 1;
-                        break;
+                    pidx++;
+                }
+            }
+            {
+                int reg_order[] = { VK_DE, VK_BC, VK_HL };
+                int reg_idx = 0;
+                for (i = 0; i < local_count; i++) {
+                    if (locals[i].prefix == 'A' && locals[i].reg == VK_NONE) {
+                        VarUsage *vu = find_var_usage(locals[i].id);
+                        if (!vu || vu->count == 0) continue;
+                        int assigned = 0;
+                        while (reg_idx < 3) {
+                            int candidate = reg_order[reg_idx];
+                            int taken = 0;
+                            int j;
+                            for (j = 0; j < local_count; j++) {
+                                if (locals[j].reg == candidate) { taken = 1; break; }
+                            }
+                            reg_idx++;
+                            if (!taken) {
+                                locals[i].reg = candidate;
+                                assigned = 1;
+                                break;
+                            }
+                        }
+                        if (!assigned) goto partial;
                     }
                 }
-                if (!assigned) return; /* ran out of registers */
             }
+            /* All used vars register-allocated → eliminate frame */
+            func_has_locals = 0;
+            func_frame_bytes = 0;
+            return;
         }
     }
 
-    /* If all used vars are register-allocated, eliminate frame */
-    /* All used vars are register-allocated */
-    func_has_locals = 0;
-    func_frame_bytes = 0;
+partial:
+    /* === CASE 2: Partial register allocation (framed function) ===
+     * Assign DE to the most-used 2-byte scalar auto variable.
+     * Parameters stay on stack (saved via push hl).
+     * Arrays, structs, addr-taken stay on stack. */
+    {
+        /* Reset any partial assignments from case 1 attempt */
+        for (i = 0; i < local_count; i++)
+            locals[i].reg = VK_NONE;
+
+        /* Find the most-used scalar auto variable → assign to DE */
+        int best_idx = -1;
+        int best_count = 0;
+        for (i = 0; i < local_count; i++) {
+            if (locals[i].prefix != 'A') continue;
+            if (locals[i].size > 2) continue;
+            if (locals[i].type == 'S' || locals[i].type == 'U') continue;
+            VarUsage *vu = find_var_usage(locals[i].id);
+            if (!vu || vu->count == 0) continue;
+            if (vu->addr_taken) continue;
+            if (vu->count > best_count) {
+                best_count = vu->count;
+                best_idx = i;
+            }
+        }
+
+        if (best_idx >= 0) {
+            locals[best_idx].reg = VK_DE;
+
+            /* Recalculate frame with param-first layout:
+             * Params first (saved via push hl at IX-2),
+             * then used autos, skipping register-allocated and unused */
+            int offset = 0;
+            func_has_locals = 0;
+            /* Parameters first */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P') {
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            /* Then auto locals (skip register-allocated and unused) */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A') {
+                    if (locals[i].reg != VK_NONE) continue;
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (!vu || vu->count == 0) continue;
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            func_frame_bytes = offset;
+        }
+    }
 }
 
 /* ================================================================
@@ -1527,9 +1574,68 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case ':': {
-            /* Assignment: :C, :N, :I
+            /* Assignment: :C, :N, :I, and compound :+C, :+N, :+I
              * Handles VK_ADDR_HL (indirect memory access) for both src and dest. */
             char type = tok[1];
+            /* Compound assignment: :+N means dest += value */
+            if (type == '+' || type == '-') {
+                char ctype = tok[2]; /* actual type: N, C, I */
+                VVal *delta = vpop();
+                VVal *var = vpop();
+                if (var && delta) {
+                    if (ctype == 'C') {
+                        gen_load_a(cc, var);
+                        if (type == '+') {
+                            if (delta->kind == VK_IMM && delta->value == 1)
+                                emit_instr(cc, "inc", "a");
+                            else {
+                                emit_instr(cc, "ld", "e,a");
+                                gen_load_a(cc, delta);
+                                emit_instr(cc, "add", "a,e");
+                            }
+                        } else {
+                            if (delta->kind == VK_IMM && delta->value == 1)
+                                emit_instr(cc, "dec", "a");
+                            else {
+                                emit_instr(cc, "ld", "e,a");
+                                gen_load_a(cc, delta);
+                                emit_instr(cc, "sub", "e");
+                            }
+                        }
+                        gen_store_a(cc, var);
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else {
+                        /* Optimized: inc/dec for register pairs */
+                        if (var->kind == VK_DE && delta->kind == VK_IMM && delta->value == 1) {
+                            emit_instr(cc, type == '+' ? "inc" : "dec", "de");
+                            vpush(VK_DE, NULL, 0, ctype);
+                            break;
+                        }
+                        gen_load_hl(cc, var);
+                        if (type == '+') {
+                            if (delta->kind == VK_IMM && delta->value == 1)
+                                emit_instr(cc, "inc", "hl");
+                            else {
+                                emit_instr(cc, "push", "hl");
+                                gen_load_hl(cc, delta);
+                                emit_instr(cc, "pop", "de");
+                                emit_instr(cc, "ex", "de,hl");
+                                emit_instr(cc, "add", "hl,de");
+                            }
+                        } else {
+                            emit_instr(cc, "push", "hl");
+                            gen_load_hl(cc, delta);
+                            emit_instr(cc, "pop", "de");
+                            emit_instr(cc, "ex", "de,hl");
+                            emit_instr(cc, "or", "a");
+                            emit_instr(cc, "sbc", "hl,de");
+                        }
+                        gen_store_hl(cc, var);
+                        vpush(VK_HL, NULL, 0, ctype);
+                    }
+                }
+                break;
+            }
             VVal *value = vpop();
             VVal *dest = vpop();
             if (value && dest) {
@@ -1686,7 +1792,24 @@ static void gen_expr_stmt(Cc2State *cc)
                         }
                     }
 
-                    if (b->kind == VK_IMM && b->value == 1) {
+                    if (b->kind == VK_IMM && b->value == 1 &&
+                        rbase_kind == VK_LOCAL && a->kind == VK_DE) {
+                        /* Optimized: element size 1, index in DE, base is local.
+                         * Compute base addr into HL, then add hl,de.
+                         * Matches CCC.ASM pattern: ld hl,N / add hl,sp / add hl,de */
+                        int sp_off = sp_relative_offset(rbase_value, sp_push_adj);
+                        {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "hl,%d", sp_off);
+                            emit_instr(cc, "ld", buf);
+                        }
+                        emit_instr(cc, "add", "hl,sp");
+                        emit_instr(cc, "add", "hl,de");
+                        rbase_active = 0;
+                        vpush(VK_ADDR_HL, NULL, 0, 'R');
+                        (void)need_add_base;
+                        break; /* skip the generic base-add code below */
+                    } else if (b->kind == VK_IMM && b->value == 1) {
                         /* Element size 1: just use index as-is */
                         gen_load_hl(cc, a);
                     } else {
@@ -2008,6 +2131,15 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     gen_store_a(cc, var);
                 } else {
+                    /* Optimized: inc/dec for register-allocated vars */
+                    if (var->kind == VK_DE && delta->kind == VK_IMM && delta->value == 1) {
+                        emit_instr(cc, op == '+' ? "inc" : "dec", "de");
+                        break;
+                    }
+                    if (var->kind == VK_BC && delta->kind == VK_IMM && delta->value == 1) {
+                        emit_instr(cc, op == '+' ? "inc" : "dec", "bc");
+                        break;
+                    }
                     gen_load_hl(cc, var);
                     if (op == '+') {
                         if (delta->kind == VK_IMM && delta->value == 1)
@@ -2924,18 +3056,21 @@ static void parse_function(Cc2State *cc)
     } else {
         int i;
         int offset = 0;
-        /* Auto locals get negative IX offsets */
+        /* Param-first layout (matches CCC.ASM):
+         * First param saved via push hl → IX-2/-1
+         * Then auto locals follow at IX-4, IX-6, etc. */
+
+        /* Parameters first: saved via push hl in prologue */
         for (i = 0; i < local_count; i++) {
-            if (locals[i].prefix == 'A') {
+            if (locals[i].prefix == 'P') {
                 offset += locals[i].size;
                 locals[i].ix_offset = -offset;
                 func_has_locals = 1;
             }
         }
-        func_frame_bytes = offset;
-        /* Parameters for F1 are in HL, saved to stack */
+        /* Auto locals follow after parameters */
         for (i = 0; i < local_count; i++) {
-            if (locals[i].prefix == 'P') {
+            if (locals[i].prefix == 'A') {
                 offset += locals[i].size;
                 locals[i].ix_offset = -offset;
                 func_has_locals = 1;
@@ -2959,12 +3094,20 @@ static void parse_function(Cc2State *cc)
         /* Count variable usage */
         body_count_usage();
 
-        /* Eliminate unused variables from frame */
+        /* Eliminate unused variables from frame (param-first layout) */
         {
             int i;
             int offset = 0;
             func_has_locals = 0;
-            /* Reallocate: only include used auto locals */
+            /* Parameters first (saved via push hl) */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P') {
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            /* Then used auto locals */
             for (i = 0; i < local_count; i++) {
                 if (locals[i].prefix == 'A') {
                     VarUsage *vu = find_var_usage(locals[i].id);
@@ -2973,17 +3116,8 @@ static void parse_function(Cc2State *cc)
                         locals[i].ix_offset = -offset;
                         func_has_locals = 1;
                     } else {
-                        locals[i].ix_offset = 0; /* unused, no slot */
+                        locals[i].ix_offset = 0; /* unused */
                     }
-                }
-            }
-            func_frame_bytes = offset;
-            /* Parameters */
-            for (i = 0; i < local_count; i++) {
-                if (locals[i].prefix == 'P') {
-                    offset += locals[i].size;
-                    locals[i].ix_offset = -offset;
-                    func_has_locals = 1;
                 }
             }
             func_frame_bytes = offset;
@@ -3019,21 +3153,31 @@ static void parse_function(Cc2State *cc)
         out_instruction(cc, "ld", "ix,0");
         out_instruction(cc, "add", "ix,sp");
 
-        /* Allocate stack space for locals */
-        if (func_frame_bytes <= 12) {
-            /* Small frames: use push bc (2 bytes per push) */
-            int pushes = (func_frame_bytes + 1) / 2;
-            int i;
-            for (i = 0; i < pushes; i++) {
-                out_instruction(cc, "push", "bc");
+        /* Save first parameter via push hl (puts it at IX-2/-1)
+         * This matches the CCC.ASM behavior: param is saved first,
+         * then the remaining frame is allocated for locals */
+        int param_push_bytes = 0;
+        if (param_count > 0) {
+            out_instruction(cc, "push", "hl");
+            param_push_bytes = 2;  /* push hl = 2 bytes */
+        }
+
+        /* Allocate remaining stack space for auto locals */
+        int alloc_bytes = func_frame_bytes - param_push_bytes;
+        if (alloc_bytes > 0) {
+            if (alloc_bytes <= 12) {
+                int pushes = (alloc_bytes + 1) / 2;
+                int i;
+                for (i = 0; i < pushes; i++) {
+                    out_instruction(cc, "push", "bc");
+                }
+            } else {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", (65536 - alloc_bytes) & 0xFFFF);
+                out_instruction(cc, "ld", buf);
+                out_instruction(cc, "add", "hl,sp");
+                out_instruction(cc, "ld", "sp,hl");
             }
-        } else {
-            /* Large frames: use ld hl,65536-N / add hl,sp / ld sp,hl */
-            char buf[32];
-            snprintf(buf, sizeof(buf), "hl,%d", (65536 - func_frame_bytes) & 0xFFFF);
-            out_instruction(cc, "ld", buf);
-            out_instruction(cc, "add", "hl,sp");
-            out_instruction(cc, "ld", "sp,hl");
         }
     }
 
