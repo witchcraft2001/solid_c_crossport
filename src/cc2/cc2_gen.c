@@ -907,6 +907,12 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
             if (buf[0] == 'S') {
                 int snum = atoi(buf + 1);
                 v.offset = lookup_struct_size(cc, snum);
+            } else if (buf[0] == 'V') {
+                int vnum = atoi(buf + 1); v.offset = 0;
+                int vi; for (vi = 0; vi < cc->sym_count; vi++)
+                    if (cc->sym[vi].type == SYM_VAR && cc->sym[vi].name == (u16)vnum)
+                        { v.offset = cc->sym[vi].value; break; }
+                if (v.offset == 0) v.offset = 2;
             } else if (buf[0] == 'C') {
                 v.offset = 1;
             } else if (buf[0] == 'R' || buf[0] == 'N' || buf[0] == 'I') {
@@ -1665,10 +1671,26 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case '#': {
-            /* Immediate constant or type size: #C=1, #R=2, #N=2, #I=2, #S<n>=struct size */
+            /* Immediate constant or type size:
+             * #C=1, #R=2, #N=2, #I=2, #S<n>=struct size, #V<n>=var size */
             int val;
             if (tok[1] == 'S') {
                 val = lookup_struct_size(cc, atoi(tok + 2));
+            } else if (tok[1] == 'V') {
+                /* Variable-size type: look up total byte size from symbol table */
+                int vnum = atoi(tok + 2);
+                val = 0;
+                {
+                    int vi;
+                    for (vi = 0; vi < cc->sym_count; vi++) {
+                        if (cc->sym[vi].type == SYM_VAR &&
+                            cc->sym[vi].name == (u16)vnum) {
+                            val = cc->sym[vi].value; /* already: count * type_size */
+                            break;
+                        }
+                    }
+                }
+                if (val == 0) val = 2; /* fallback */
             } else if (tok[1] == 'C') {
                 val = 1; /* sizeof(char) */
             } else if (tok[1] == 'R' || tok[1] == 'N' || tok[1] == 'I') {
@@ -1862,6 +1884,11 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
+                /* Constant folding */
+                if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                    vpush(VK_IMM, NULL, (a->value + b->value) & 0xFFFF, type);
+                    break;
+                }
                 if (type == 'C') {
                     if (b->kind == VK_IMM && b->value == 1) {
                         gen_load_a(cc, a);
@@ -1911,6 +1938,11 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
+                /* Constant folding */
+                if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                    vpush(VK_IMM, NULL, (a->value - b->value) & 0xFFFF, type);
+                    break;
+                }
                 if (type == 'C') {
                     gen_load_a(cc, b);
                     emit_instr(cc, "ld", "e,a");
@@ -1932,6 +1964,11 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
+                /* Constant folding (not for *R with base tracking) */
+                if (a->kind == VK_IMM && b->kind == VK_IMM && !(type == 'R' && rbase_active)) {
+                    vpush(VK_IMM, NULL, (a->value * b->value) & 0xFFFF, type);
+                    break;
+                }
                 if (type == 'R' && rbase_active) {
                     /* Array subscript: index * element_size + base
                      * a = index, b = element size, rbase_* = saved base */
@@ -2164,8 +2201,15 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                /* Load divisor first, then save HL param if needed.
-                 * This matches CCC.ASM order: ld de,N / push hl */
+                /* Constant folding: both operands known at compile time */
+                if (a->kind == VK_IMM && b->kind == VK_IMM && b->value != 0) {
+                    int result;
+                    if (type == 'I') result = (int16_t)a->value / (int16_t)b->value;
+                    else result = (u16)a->value / (u16)b->value;
+                    vpush(VK_IMM, NULL, result, type);
+                    break;
+                }
+                /* Load divisor first, then save HL param if needed */
                 gen_load_de(cc, b);
                 if (a->kind == VK_HL && !func_has_locals) {
                     emit_instr(cc, "push", "hl");
@@ -2188,6 +2232,14 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
+                /* Constant folding */
+                if (a->kind == VK_IMM && b->kind == VK_IMM && b->value != 0) {
+                    int result;
+                    if (type == 'I') result = (int16_t)a->value % (int16_t)b->value;
+                    else result = (u16)a->value % (u16)b->value;
+                    vpush(VK_IMM, NULL, result, type);
+                    break;
+                }
                 gen_load_de(cc, b);
                 gen_load_hl(cc, a);
                 if (type == 'I') {
@@ -2592,6 +2644,13 @@ static void gen_cond_jump(Cc2State *cc)
         case '#': {
             int val;
             if (tok[1] == 'S') val = lookup_struct_size(cc, atoi(tok + 2));
+            else if (tok[1] == 'V') {
+                int vnum = atoi(tok + 2); val = 0;
+                int vi; for (vi = 0; vi < cc->sym_count; vi++)
+                    if (cc->sym[vi].type == SYM_VAR && cc->sym[vi].name == (u16)vnum)
+                        { val = cc->sym[vi].value; break; }
+                if (val == 0) val = 2;
+            }
             else if (tok[1] == 'C') val = 1;
             else if (tok[1] == 'R' || tok[1] == 'N' || tok[1] == 'I') val = 2;
             else val = atoi(tok + 1);
