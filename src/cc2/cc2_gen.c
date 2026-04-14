@@ -488,6 +488,8 @@ typedef struct {
 
 static VarUsage var_usage[MAX_VAR_USAGE];
 static int var_usage_count;
+static int body_has_calls;      /* 1 if body contains X (function calls) */
+static int param_used_after_call; /* 1 if a P<n> ref appears after first X call */
 
 static VarUsage *find_var_usage(int id)
 {
@@ -502,6 +504,28 @@ static void body_count_usage(void)
 {
     int pos = 0;
     var_usage_count = 0;
+    body_has_calls = 0;
+    param_used_after_call = 0;
+
+    /* First pass: find if there are any X (function call) tokens */
+    {
+        int p = 0;
+        int seen_call = 0;
+        while (p < body_buf_len) {
+            int c = (u8)body_buf[p];
+            if (c == 'X' && p > 0 && body_buf[p-1] == '\t') {
+                body_has_calls = 1;
+                seen_call = 1;
+            }
+            if (c == 'P' && seen_call && p + 1 < body_buf_len) {
+                int nx = (u8)body_buf[p + 1];
+                if (nx >= '0' && nx <= '9') {
+                    param_used_after_call = 1;
+                }
+            }
+            p++;
+        }
+    }
 
     while (pos < body_buf_len) {
         int ch = (u8)body_buf[pos];
@@ -1322,8 +1346,17 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
 {
     int i;
 
-    /* Register spills for function calls are handled by callers
-     * (division/modulo handlers) on a case-by-case basis. */
+    /* Emit register saves for frameless functions.
+     * hl_spilled/de_spilled: 1=needs saving, 2=already saved on stack.
+     * Save before first call, restore on next param reference. */
+    if (hl_spilled == 1) {
+        emit_instr(cc, "push", "hl");
+        hl_spilled = 2;
+    }
+    if (de_spilled == 1) {
+        emit_instr(cc, "push", "de");
+        de_spilled = 2;
+    }
     (void)regs_to_save_across_call;
     (void)emit_reg_saves;
     (void)emit_reg_restores;
@@ -1533,12 +1566,12 @@ static void gen_expr_stmt(Cc2State *cc)
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
             if (lv) {
-                if (lv->reg == VK_HL && hl_spilled) {
-                    /* HL param was saved on stack — restore it */
+                if (lv->reg == VK_HL && hl_spilled == 2) {
+                    /* HL param was pushed to stack — pop to restore */
                     emit_instr(cc, "pop", "hl");
-                    hl_spilled = 0;
+                    hl_spilled = 0; /* restored — don't save again unless needed */
                     vpush(VK_HL, NULL, 0, lv->type);
-                } else if (lv->reg == VK_DE && de_spilled) {
+                } else if (lv->reg == VK_DE && de_spilled == 2) {
                     emit_instr(cc, "pop", "de");
                     de_spilled = 0;
                     vpush(VK_DE, NULL, 0, lv->type);
@@ -2011,7 +2044,7 @@ static void gen_expr_stmt(Cc2State *cc)
                 gen_load_de(cc, b);
                 if (a->kind == VK_HL && !func_has_locals) {
                     emit_instr(cc, "push", "hl");
-                    hl_spilled = 1;
+                    hl_spilled = 2; /* already saved on stack */
                 }
                 gen_load_hl(cc, a);
                 if (type == 'I') {
@@ -2388,11 +2421,11 @@ static void gen_cond_jump(Cc2State *cc)
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
             if (lv) {
-                if (lv->reg == VK_HL && hl_spilled) {
+                if (lv->reg == VK_HL && hl_spilled == 2) {
                     emit_instr(cc, "pop", "hl");
                     hl_spilled = 0;
                     vpush(VK_HL, NULL, 0, lv->type);
-                } else if (lv->reg == VK_DE && de_spilled) {
+                } else if (lv->reg == VK_DE && de_spilled == 2) {
                     emit_instr(cc, "pop", "de");
                     de_spilled = 0;
                     vpush(VK_DE, NULL, 0, lv->type);
@@ -3252,7 +3285,37 @@ static void parse_function(Cc2State *cc)
         /* Try to allocate variables to registers */
         try_register_allocate();
 
+        /* For frameless functions where register params are used after
+         * function calls, pre-set spill flags so the body generator
+         * knows to emit push (on first call) and pop (on next param ref) */
+        if (!func_has_locals && func_frame_bytes == 0 && param_used_after_call) {
+            int i;
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P' && locals[i].reg == VK_HL)
+                    hl_spilled = 1;  /* will trigger push on first call, pop on next ref */
+                if (locals[i].prefix == 'P' && locals[i].reg == VK_DE)
+                    de_spilled = 1;
+            }
+        }
+
         /* Replay body through code generator */
+        body_start_replay(cc);
+        parse_function_body(cc);
+        body_stop_replay(cc);
+    } else if (param_count > 0 && auto_count == 0) {
+        /* Frameless function with register params:
+         * Do lightweight body scan for spill analysis, then single-pass */
+        body_capture(cc);
+        body_count_usage(); /* sets param_used_after_call */
+        if (param_used_after_call) {
+            int i;
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P' && locals[i].reg == VK_HL)
+                    hl_spilled = 1;
+                if (locals[i].prefix == 'P' && locals[i].reg == VK_DE)
+                    de_spilled = 1;
+            }
+        }
         body_start_replay(cc);
         parse_function_body(cc);
         body_stop_replay(cc);
