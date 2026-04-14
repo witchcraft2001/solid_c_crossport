@@ -1284,6 +1284,13 @@ static void gen_load_bc(Cc2State *cc, VVal *v)
         emit_instr(cc, "ld", "c,e");
         emit_instr(cc, "ld", "b,d");
         break;
+    case VK_GLOBAL:
+        /* Z80 has no ld bc,(nn) — load via HL */
+        snprintf(buf, sizeof(buf), "hl,(%s)", v->sym);
+        emit_instr(cc, "ld", buf);
+        emit_instr(cc, "ld", "c,l");
+        emit_instr(cc, "ld", "b,h");
+        break;
     case VK_STRING:
         snprintf(buf, sizeof(buf), "bc,?%d", str_consts[v->str_idx].label);
         emit_instr(cc, "ld", buf);
@@ -1395,6 +1402,21 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
                     emit_instr(cc, "ld", "c,a");
                 }
                 emit_instr(cc, "push", "bc");
+                pushes++;
+            } else if (arg->kind == VK_GLOBAL) {
+                /* Global: ld hl,(name) / push hl */
+                char buf[128];
+                snprintf(buf, sizeof(buf), "hl,(%s)", arg->sym);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "push", "hl");
+                pushes++;
+            } else if (arg->kind == VK_HL) {
+                /* Already in HL: just push hl */
+                emit_instr(cc, "push", "hl");
+                pushes++;
+            } else if (arg->kind == VK_DE) {
+                /* In DE: push de */
+                emit_instr(cc, "push", "de");
                 pushes++;
             } else {
                 /* 16-bit value: load into bc, push */
