@@ -2881,6 +2881,8 @@ static void gen_expr_stmt(Cc2State *cc)
  * The leading \tj has been consumed; we need to read L<n>, expression, and 'n'. */
 static void gen_cond_jump(Cc2State *cc)
 {
+    int or_skip_label = -1; /* for logical OR short-circuit */
+
     /* Read target label */
     int ch = tmc_read_char(cc);
     if (ch == '\t') ch = tmc_read_char(cc);
@@ -3029,17 +3031,35 @@ static void gen_cond_jump(Cc2State *cc)
             char from = tok[0], to = tok[1];
             VVal *top = vtop();
             if (top) {
+                /* Constants: just update type, no code needed */
+                if (top->kind == VK_IMM) {
+                    top->type = to;
+                    break;
+                }
                 if (from == 'N' && to == 'I') top->type = 'I';
                 else if (from == 'I' && to == 'N') top->type = 'N';
                 else if (from == 'C' && to == 'I') {
-                    gen_load_a(cc, top); vsp--;
-                    emit_instr(cc, "ld", "l,a");
-                    emit_instr(cc, "ld", "h,0");
-                    vpush(VK_HL, NULL, 0, 'I');
+                    if (top->kind == VK_ADDR_HL && top->type == 'C') {
+                        vsp--;
+                        emit_instr(cc, "ld", "l,(hl)");
+                        emit_instr(cc, "ld", "h,0");
+                        vpush(VK_HL, NULL, 0, 'I');
+                    } else {
+                        gen_load_a(cc, top); vsp--;
+                        emit_instr(cc, "ld", "l,a");
+                        emit_instr(cc, "ld", "h,0");
+                        vpush(VK_HL, NULL, 0, 'I');
+                    }
                 } else if (from == 'N' && to == 'C') {
-                    gen_load_hl(cc, top); vsp--;
-                    emit_instr(cc, "ld", "a,l");
-                    vpush(VK_A, NULL, 0, 'C');
+                    if (top->kind == VK_ADDR_HL && top->type == 'C') {
+                        vsp--;
+                        emit_instr(cc, "ld", "a,(hl)");
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else {
+                        gen_load_hl(cc, top); vsp--;
+                        emit_instr(cc, "ld", "a,l");
+                        vpush(VK_A, NULL, 0, 'C');
+                    }
                 } else if (from == 'C' && to == 'N') {
                     gen_load_a(cc, top); vsp--;
                     emit_instr(cc, "ld", "l,a");
@@ -3215,6 +3235,30 @@ static void gen_cond_jump(Cc2State *cc)
             }
             break;
         }
+        case 's': {
+            /* Logical OR in jump condition (short-circuit).
+             * If first condition is TRUE, skip past the exit jump.
+             * For `cond1 cond2 s n` → jump to target if NEITHER is true.
+             * Emit: jp <true>,@skip for first cond, then evaluate second.
+             * The @skip label is emitted after the final jump by appending
+             * it as a label instruction. */
+            if (cmp_op) {
+                int skip = cc->local_label++;
+                char jbuf2[64];
+                switch (cmp_op) {
+                case '=': snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
+                case '!': snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", skip); break;
+                case '<': snprintf(jbuf2, sizeof(jbuf2), "c,@%d", skip); break;
+                default:  snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
+                }
+                emit_instr(cc, "jp", jbuf2);
+                cmp_op = 0;
+                /* Emit skip label LATER: after the final jp is emitted,
+                 * we need @skip: to follow. Use a marker in instr_list. */
+                or_skip_label = skip;
+            }
+            break;
+        }
         case 'm': {
             /* Logical AND in jump condition (short-circuit).
              * Emit conditional jump for current comparison, then
@@ -3312,6 +3356,13 @@ static void gen_cond_jump(Cc2State *cc)
         }
     }
     emit_instr(cc, "jp", jbuf);
+
+    /* Emit OR-skip label after the final jump (for logical OR short-circuit) */
+    if (or_skip_label >= 0) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "@%d", or_skip_label);
+        emit_label_instr(buf);
+    }
 }
 
 /* Generate return value: y<type>\t<expr>
