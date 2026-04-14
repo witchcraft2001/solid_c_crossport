@@ -2051,13 +2051,48 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    /* 16-bit multiply: HL * DE → call ?mulhd */
+                    /* 16-bit multiply: strength reduction for small constants */
+                    int mul_val = 0;
+                    VVal *var_op = NULL;
+                    if (b->kind == VK_IMM) { mul_val = b->value; var_op = a; }
+                    else if (a->kind == VK_IMM) { mul_val = a->value; var_op = b; }
+
+                    if (mul_val == 256 && var_op) {
+                        /* *256 = shift left 8 */
+                        if (var_op->kind == VK_A) {
+                            /* Byte in A: ld h,a / ld l,0 */
+                            emit_instr(cc, "ld", "h,a");
+                            emit_instr(cc, "ld", "l,0");
+                        } else {
+                            gen_load_hl(cc, var_op);
+                            emit_instr(cc, "ld", "h,l");
+                            emit_instr(cc, "ld", "l,0");
+                        }
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    } else if (mul_val == 257 && var_op) {
+                        /* *257 = val*256 + val: ld c,l / ld b,h / ld h,l / ld l,0 / add hl,bc */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "ld", "c,l");
+                        emit_instr(cc, "ld", "b,h");
+                        emit_instr(cc, "ld", "h,l");
+                        emit_instr(cc, "ld", "l,0");
+                        emit_instr(cc, "add", "hl,bc");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    } else if (mul_val == 2 && var_op) {
+                        /* *2 = add hl,hl */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    }
+
+                    /* General case: HL * DE → call ?mulhd */
                     if (b->kind == VK_IMM) {
-                        /* Constant: load to DE directly, first op in HL */
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
                     } else if (a->kind == VK_IMM) {
-                        /* Swap: constant to DE, variable to HL */
                         gen_load_hl(cc, b);
                         gen_load_de(cc, a);
                     } else {
