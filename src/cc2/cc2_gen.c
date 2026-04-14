@@ -55,7 +55,12 @@ typedef struct {
 static Instr instr_list[MAX_INSTR];
 static int   instr_count;
 
-/* TMC body buffer will be added when two-pass optimization is implemented */
+/* ================================================================
+ *  TMC function body buffer (for two-pass optimization)
+ * ================================================================ */
+#define MAX_BODY_BUF 65536
+static char body_buf[MAX_BODY_BUF];
+static int  body_buf_len;
 
 /* ================================================================
  *  Name table: stores identifier strings, referenced by index
@@ -398,6 +403,219 @@ static LocalVar *find_local(int id)
         if (locals[i].id == id) return &locals[i];
     }
     return NULL;
+}
+
+/* ================================================================
+ *  Body capture: read function body TMC into body_buf
+ * ================================================================ */
+static void body_capture(Cc2State *cc)
+{
+    body_buf_len = 0;
+    int ch;
+    for (;;) {
+        ch = tmc_read_char(cc);
+        if (ch == 0x1A) break;
+        if (body_buf_len < MAX_BODY_BUF)
+            body_buf[body_buf_len++] = (char)ch;
+        if (ch == '}') {
+            /* Capture rest of line after } */
+            for (;;) {
+                ch = tmc_read_char(cc);
+                if (ch == '\n' || ch == 0x1A) {
+                    if (body_buf_len < MAX_BODY_BUF)
+                        body_buf[body_buf_len++] = '\n';
+                    break;
+                }
+                if (body_buf_len < MAX_BODY_BUF)
+                    body_buf[body_buf_len++] = (char)ch;
+            }
+            break;
+        }
+    }
+}
+
+/* Start replay of captured body */
+static void body_start_replay(Cc2State *cc)
+{
+    cc->replay_buf = body_buf;
+    cc->replay_pos = 0;
+    cc->replay_len = body_buf_len;
+    cc->pushback_count = 0;
+}
+
+static void body_stop_replay(Cc2State *cc)
+{
+    cc->replay_buf = NULL;
+}
+
+/* ================================================================
+ *  Variable usage counting (pre-scan of body_buf)
+ *
+ *  Scans body_buf for A<n>/P<n> references and counts them.
+ *  Also detects address-taken variables (a/@ after variable ref).
+ * ================================================================ */
+#define MAX_VAR_USAGE 128
+
+typedef struct {
+    int id;
+    int count;         /* how many times referenced */
+    int addr_taken;    /* 1 if address is taken ('a' or '@' after ref) */
+    int assigned;      /* 1 if used as assignment target (:C/:N/:I) */
+} VarUsage;
+
+static VarUsage var_usage[MAX_VAR_USAGE];
+static int var_usage_count;
+
+static VarUsage *find_var_usage(int id)
+{
+    int i;
+    for (i = 0; i < var_usage_count; i++) {
+        if (var_usage[i].id == id) return &var_usage[i];
+    }
+    return NULL;
+}
+
+static void body_count_usage(void)
+{
+    int pos = 0;
+    var_usage_count = 0;
+
+    while (pos < body_buf_len) {
+        int ch = (u8)body_buf[pos];
+        if ((ch == 'A' || ch == 'P') && pos + 1 < body_buf_len) {
+            int next = (u8)body_buf[pos + 1];
+            if (next >= '0' && next <= '9') {
+                int num = 0;
+                int p = pos + 1;
+                while (p < body_buf_len && (u8)body_buf[p] >= '0' &&
+                       (u8)body_buf[p] <= '9') {
+                    num = num * 10 + ((u8)body_buf[p] - '0');
+                    p++;
+                }
+                /* Valid token if followed by tab/newline */
+                if (p >= body_buf_len || body_buf[p] == '\t' ||
+                    body_buf[p] == '\n') {
+                    VarUsage *vu = find_var_usage(num);
+                    if (!vu && var_usage_count < MAX_VAR_USAGE) {
+                        vu = &var_usage[var_usage_count++];
+                        vu->id = num;
+                        vu->count = 0;
+                        vu->addr_taken = 0;
+                        vu->assigned = 0;
+                    }
+                    if (vu) {
+                        vu->count++;
+                        /* Check if followed by 'a' (address-of operator).
+                         * Note: '@' is array subscript, NOT address-of. */
+                        if (p + 1 < body_buf_len &&
+                            body_buf[p] == '\t' &&
+                            body_buf[p + 1] == 'a') {
+                            /* 'a' followed by tab means address-of */
+                            if (p + 2 < body_buf_len &&
+                                (body_buf[p + 2] == '\t' || body_buf[p + 2] == '\n'))
+                                vu->addr_taken = 1;
+                        }
+                    }
+                }
+                pos = p;
+                continue;
+            }
+        }
+        pos++;
+    }
+}
+
+/* ================================================================
+ *  Simple register allocator
+ *
+ *  For functions where all variables are ≤2 bytes, not address-taken,
+ *  and can fit in 3 register pairs (BC, DE, HL).
+ *
+ *  Assigns registers based on usage priority.
+ *  Modifies locals[].reg field.
+ * ================================================================ */
+static void try_register_allocate(void)
+{
+    int i;
+    int auto_count = local_count - param_count;
+
+    /* Already handled: trivial functions (0 autos, ≤1 param) */
+    if (auto_count == 0 && param_count <= 1) return;
+
+    /* Check all variables: must be ≤2 bytes, not address-taken, no structs */
+    for (i = 0; i < local_count; i++) {
+        if (locals[i].size > 2) return;
+        if (locals[i].type == 'S' || locals[i].type == 'U') return;
+        VarUsage *vu = find_var_usage(locals[i].id);
+        if (vu && vu->addr_taken) return;
+    }
+
+    /* All vars are register candidates. Check count fits. */
+    int used_count = 0;
+    for (i = 0; i < local_count; i++) {
+        VarUsage *vu = find_var_usage(locals[i].id);
+        if (vu && vu->count > 0) used_count++;
+    }
+
+    /* For now, only handle cases where all used vars fit in registers */
+    if (used_count > 3) return; /* BC, DE, HL = 3 pairs */
+
+    /* Assign registers to parameters based on calling convention:
+     * F1: 1st param in HL (char in A)
+     * F2+: 1st param in HL, 2nd param in DE */
+    {
+        int pidx = 0;
+        for (i = 0; i < local_count; i++) {
+            if (locals[i].prefix == 'P') {
+                VarUsage *vu = find_var_usage(locals[i].id);
+                if (vu && vu->count > 0) {
+                    if (pidx == 0) {
+                        /* First param: HL (or A for char) */
+                        locals[i].reg = (locals[i].type == 'C') ? VK_A : VK_HL;
+                    } else if (pidx == 1) {
+                        /* Second param: DE */
+                        locals[i].reg = VK_DE;
+                    } else {
+                        return; /* 3+ used params: can't register-allocate */
+                    }
+                }
+                pidx++;
+            }
+        }
+    }
+    /* Then assign autos to remaining registers */
+    {
+        int reg_order[] = { VK_DE, VK_BC, VK_HL };
+        int reg_idx = 0;
+        for (i = 0; i < local_count; i++) {
+            if (locals[i].prefix == 'A' && locals[i].reg == VK_NONE) {
+                VarUsage *vu = find_var_usage(locals[i].id);
+                if (!vu || vu->count == 0) continue; /* unused var */
+                /* Find next available register */
+                int assigned = 0;
+                while (reg_idx < 3) {
+                    int candidate = reg_order[reg_idx];
+                    int taken = 0;
+                    int j;
+                    for (j = 0; j < local_count; j++) {
+                        if (locals[j].reg == candidate) { taken = 1; break; }
+                    }
+                    reg_idx++;
+                    if (!taken) {
+                        locals[i].reg = candidate;
+                        assigned = 1;
+                        break;
+                    }
+                }
+                if (!assigned) return; /* ran out of registers */
+            }
+        }
+    }
+
+    /* If all used vars are register-allocated, eliminate frame */
+    /* All used vars are register-allocated */
+    func_has_locals = 0;
+    func_frame_bytes = 0;
 }
 
 /* ================================================================
@@ -892,6 +1110,15 @@ static void gen_store_hl(Cc2State *cc, VVal *dest)
         snprintf(buf, sizeof(buf), "(ix%+d),h", dest->value + 1);
         emit_instr(cc, "ld", buf);
         break;
+    case VK_DE:
+        emit_instr(cc, "ex", "de,hl");
+        break;
+    case VK_BC:
+        emit_instr(cc, "ld", "c,l");
+        emit_instr(cc, "ld", "b,h");
+        break;
+    case VK_HL:
+        break; /* already in HL */
     default:
         break;
     }
@@ -910,6 +1137,14 @@ static void gen_store_a(Cc2State *cc, VVal *dest)
         snprintf(buf, sizeof(buf), "(ix%+d),a", dest->value);
         emit_instr(cc, "ld", buf);
         break;
+    case VK_DE:
+        emit_instr(cc, "ld", "e,a");
+        break;
+    case VK_BC:
+        emit_instr(cc, "ld", "c,a");
+        break;
+    case VK_A:
+        break; /* already in A */
     default:
         break;
     }
@@ -2295,8 +2530,27 @@ static void parse_function(Cc2State *cc)
         decl_add(asmname, 1);
     }
 
-    /* Parse function body - collects string constants and instructions */
-    parse_function_body(cc);
+    /* Two-pass optimization for non-trivial functions:
+     * Pass 1: capture body TMC, count variable usage
+     * Pass 2: replay body with register allocation decisions */
+    if (func_has_locals && func_frame_bytes > 0) {
+        /* Capture body into buffer */
+        body_capture(cc);
+
+        /* Count variable usage */
+        body_count_usage();
+
+        /* Try to allocate variables to registers */
+        try_register_allocate();
+
+        /* Replay body through code generator */
+        body_start_replay(cc);
+        parse_function_body(cc);
+        body_stop_replay(cc);
+    } else {
+        /* Simple functions: single-pass */
+        parse_function_body(cc);
+    }
 
     /* Emit string constants (before function code) */
     emit_string_consts(cc);

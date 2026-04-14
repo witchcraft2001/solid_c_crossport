@@ -19,6 +19,12 @@ int tmc_read_char(Cc2State *cc)
     /* Check pushback buffer first */
     if (cc->pushback_count > 0) {
         ch = (u8)cc->pushback[--cc->pushback_count];
+    } else if (cc->replay_buf) {
+        /* Replay mode: read from buffer */
+        if (cc->replay_pos >= cc->replay_len)
+            ch = 0x1A; /* EOF */
+        else
+            ch = (u8)cc->replay_buf[cc->replay_pos++];
     } else {
         ch = io_read_byte(cc);
     }

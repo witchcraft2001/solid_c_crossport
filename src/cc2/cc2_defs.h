@@ -191,6 +191,11 @@ typedef struct {
     char func_name_buf[64]; /* T9C4D: function name during <...> */
     int  func_name_pos;     /* position in func_name_buf, -1 if not active */
 
+    /* TMC body replay (for two-pass optimization) */
+    const char *replay_buf; /* NULL = normal mode, non-NULL = replay from buffer */
+    int  replay_pos;
+    int  replay_len;
+
 } Cc2State;
 
 
