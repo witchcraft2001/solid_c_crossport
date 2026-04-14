@@ -1730,14 +1730,34 @@ static void gen_expr_stmt(Cc2State *cc)
             break;
         }
         case '\'': {
-            /* Dereference/address marker.
-             * For VK_ADDR_HL: HL already holds the computed address.
-             * For other kinds: mark as "address" (lvalue for assignment). */
+            /* Dereference: load pointer and mark as indirect memory access.
+             * For VK_ADDR_HL: already an address in HL — keep as-is.
+             * For VK_GLOBAL: load pointer from global into HL → VK_ADDR_HL.
+             * For VK_LOCAL: similar — load pointer from IX-relative.
+             * For others: mark as "address" (lvalue for assignment). */
             VVal *top = vtop();
             if (top) {
                 if (top->kind == VK_ADDR_HL) {
-                    /* Already an address in HL — keep as VK_ADDR_HL.
-                     * The consumer (:C, :N, pR, etc.) will handle load/store. */
+                    /* Already an address in HL — keep as VK_ADDR_HL */
+                } else if (top->kind == VK_GLOBAL && !top->is_addr) {
+                    /* Global pointer: load pointer value into HL */
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "hl,(%s)", top->sym);
+                    emit_instr(cc, "ld", buf);
+                    vsp--;
+                    vpush(VK_ADDR_HL, NULL, 0, top->type);
+                } else if (top->kind == VK_LOCAL && !top->is_addr) {
+                    /* Local pointer: load from IX-relative into HL */
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "l,(ix%+d)", top->value);
+                    emit_instr(cc, "ld", buf);
+                    snprintf(buf, sizeof(buf), "h,(ix%+d)", top->value + 1);
+                    emit_instr(cc, "ld", buf);
+                    vsp--;
+                    vpush(VK_ADDR_HL, NULL, 0, top->type);
+                } else if (top->kind == VK_HL && !top->is_addr) {
+                    /* HL has a pointer value — mark as address */
+                    top->kind = VK_ADDR_HL;
                 } else {
                     top->is_addr = 1;
                 }
@@ -2172,6 +2192,13 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "add", "hl,hl");
                         vpush(VK_HL, NULL, 0, type);
                         break;
+                    } else if (mul_val == 4 && var_op) {
+                        /* *4 = add hl,hl / add hl,hl */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
                     }
 
                     /* General case: HL * DE → call ?mulhd */
@@ -2251,6 +2278,29 @@ static void gen_expr_stmt(Cc2State *cc)
                 }
                 /* Remainder is in DE after division */
                 emit_instr(cc, "ex", "de,hl");
+                vpush(VK_HL, NULL, 0, type);
+            }
+            break;
+        }
+        case '|': {
+            /* Bitwise OR: |C, |N, |I */
+            char type = tok[1];
+            VVal *b = vpop();
+            VVal *a = vpop();
+            if (a && b) {
+                if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                    vpush(VK_IMM, NULL, (a->value | b->value) & 0xFFFF, type);
+                    break;
+                }
+                if (b->kind == VK_HL) gen_load_de(cc, a);
+                else if (a->kind == VK_HL) gen_load_de(cc, b);
+                else { gen_load_de(cc, b); gen_load_hl(cc, a); }
+                emit_instr(cc, "ld", "a,l");
+                emit_instr(cc, "or", "e");
+                emit_instr(cc, "ld", "l,a");
+                emit_instr(cc, "ld", "a,h");
+                emit_instr(cc, "or", "d");
+                emit_instr(cc, "ld", "h,a");
                 vpush(VK_HL, NULL, 0, type);
             }
             break;
