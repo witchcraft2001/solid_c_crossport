@@ -55,6 +55,8 @@ typedef struct {
 static Instr instr_list[MAX_INSTR];
 static int   instr_count;
 
+/* TMC body buffer will be added when two-pass optimization is implemented */
+
 /* ================================================================
  *  Name table: stores identifier strings, referenced by index
  * ================================================================ */
@@ -113,6 +115,7 @@ typedef struct {
     int  struct_num;    /* struct number if type is 'S' */
     int  size;          /* size in bytes */
     int  ix_offset;     /* offset from IX (negative for locals) */
+    int  reg;           /* VK_NONE=on stack, VK_A/VK_HL=in register */
 } LocalVar;
 
 static LocalVar locals[MAX_LOCALS];
@@ -1016,7 +1019,11 @@ static void gen_expr_stmt(Cc2State *cc)
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
             if (lv) {
-                vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
+                if (lv->reg != VK_NONE) {
+                    vpush(lv->reg, NULL, 0, lv->type);
+                } else {
+                    vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
+                }
             } else {
                 vpush(VK_IMM, NULL, 0, 'N');
             }
@@ -1552,8 +1559,12 @@ static void gen_cond_jump(Cc2State *cc)
         case 'A': case 'P': {
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
-            if (lv) vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
-            else vpush(VK_IMM, NULL, 0, 'N');
+            if (lv) {
+                if (lv->reg != VK_NONE)
+                    vpush(lv->reg, NULL, 0, lv->type);
+                else
+                    vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
+            } else vpush(VK_IMM, NULL, 0, 'N');
             break;
         }
         case 'G': {
@@ -2230,29 +2241,47 @@ static void parse_function(Cc2State *cc)
         }
     }
 
+    /* Initialize reg field */
+    {
+        int i;
+        for (i = 0; i < local_count; i++)
+            locals[i].reg = VK_NONE;
+    }
+
+    /* Count auto locals (non-params) */
+    int auto_count = local_count - param_count;
+
     /* Compute local variable frame layout */
     func_frame_bytes = 0;
     func_has_locals = 0;
-    {
+
+    /* Try register allocation for simple functions:
+     * F1 with 1 param and no auto locals → param stays in register */
+    if (auto_count == 0 && param_count == 1) {
+        /* Single param, no locals → keep param in register, no frame */
+        if (locals[0].type == 'C') {
+            locals[0].reg = VK_A;  /* char param stays in A */
+        } else {
+            locals[0].reg = VK_HL; /* int/ptr param stays in HL */
+        }
+        /* No frame needed */
+    } else if (auto_count == 0 && param_count == 0) {
+        /* No params, no locals → no frame */
+    } else {
         int i;
         int offset = 0;
         /* Auto locals get negative IX offsets */
         for (i = 0; i < local_count; i++) {
             if (locals[i].prefix == 'A') {
                 offset += locals[i].size;
-                /* Round up to even for 16-bit alignment */
-                if (locals[i].size == 1 && i + 1 < local_count) {
-                    /* Check if we can pack, but for simplicity round up */
-                }
                 locals[i].ix_offset = -offset;
                 func_has_locals = 1;
             }
         }
         func_frame_bytes = offset;
-        /* Parameters for F1 are in HL, not on stack */
+        /* Parameters for F1 are in HL, saved to stack */
         for (i = 0; i < local_count; i++) {
             if (locals[i].prefix == 'P') {
-                /* For F1 calls, param is in HL, we save to stack */
                 offset += locals[i].size;
                 locals[i].ix_offset = -offset;
                 func_has_locals = 1;
@@ -2321,8 +2350,11 @@ static void parse_function(Cc2State *cc)
     if (func_has_locals && func_frame_bytes > 0) {
         out_instruction(cc, "ld", "sp,ix");
         out_instruction(cc, "pop", "ix");
+        out_instruction(cc, "ret", "");
+    } else if (!func_has_return) {
+        /* Only emit ret if no explicit return was generated */
+        out_instruction(cc, "ret", "");
     }
-    out_instruction(cc, "ret", "");
 
     /* Emit function footer */
     out_comment(cc, "}");
