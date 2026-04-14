@@ -2188,6 +2188,48 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "ld", "e,a");
                     gen_load_a(cc, a);
                     emit_instr(cc, "cp", "e");
+                } else if (b->kind == VK_IMM && b->value >= 0 && b->value <= 255
+                           && (first == '<' || first == '[')) {
+                    /* Inline unsigned comparison: a < const or a <= const
+                     * ld a,e / sub <const> / ld a,d / sbc a,0 */
+                    gen_load_de(cc, a);
+                    {
+                        char buf[32];
+                        emit_instr(cc, "ld", "a,e");
+                        snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
+                        emit_instr(cc, "sub", buf);
+                        emit_instr(cc, "ld", "a,d");
+                        emit_instr(cc, "sbc", "a,0");
+                    }
+                } else if (b->kind == VK_IMM && b->value == 1
+                           && (first == '=' || first == '!')) {
+                    /* Equality with 1: ld a,l / dec a / or h
+                     * If HL=1: a=1, dec→0, or h (h=0)→0 (Z)
+                     * Z flag set means HL == 1 */
+                    gen_load_hl(cc, a);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "dec", "a");
+                    emit_instr(cc, "or", "h");
+                } else if (b->kind == VK_IMM &&
+                           (b->value == -1 || b->value == 65535) &&
+                           (first == '=' || first == '!')) {
+                    /* Equality with -1: ld a,l / and h / inc a
+                     * If HL=0xFFFF: a=FF, and h=FF→FF, inc→0 (Z)
+                     * So Z flag set means HL == -1 */
+                    gen_load_hl(cc, a);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "and", "h");
+                    emit_instr(cc, "inc", "a");
+                    /* For '=': Z means equal; for '!': Z means equal too */
+                    /* The jump logic below will handle negate */
+                } else if (b->kind == VK_IMM && b->value >= 0 && b->value <= 255
+                           && (first == '=' || first == '!')) {
+                    /* Equality with small constant: use ?cpshd for now */
+                    gen_load_hl(cc, b);
+                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_hl(cc, a);
+                    decl_add("?cpshd", 0);
+                    emit_instr(cc, "call", "?cpshd");
                 } else {
                     gen_load_hl(cc, b);
                     emit_instr(cc, "ex", "de,hl");
@@ -2294,6 +2336,23 @@ static void gen_cond_jump(Cc2State *cc)
         case 'M': {
             int mnum = atoi(tok + 1);
             vpush(VK_MEMBER, NULL, mnum, 'N');
+            break;
+        }
+        case '_': {
+            /* Negate: _I, _N */
+            VVal *top = vtop();
+            if (top) {
+                if (top->kind == VK_IMM) {
+                    top->value = -top->value;
+                } else {
+                    gen_load_hl(cc, top); vsp--;
+                    emit_instr(cc, "ex", "de,hl");
+                    emit_instr(cc, "ld", "hl,0");
+                    emit_instr(cc, "or", "a");
+                    emit_instr(cc, "sbc", "hl,de");
+                    vpush(VK_HL, NULL, 0, tok[1]);
+                }
+            }
             break;
         }
         default:
@@ -2899,6 +2958,36 @@ static void parse_function(Cc2State *cc)
 
         /* Count variable usage */
         body_count_usage();
+
+        /* Eliminate unused variables from frame */
+        {
+            int i;
+            int offset = 0;
+            func_has_locals = 0;
+            /* Reallocate: only include used auto locals */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A') {
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (vu && vu->count > 0) {
+                        offset += locals[i].size;
+                        locals[i].ix_offset = -offset;
+                        func_has_locals = 1;
+                    } else {
+                        locals[i].ix_offset = 0; /* unused, no slot */
+                    }
+                }
+            }
+            func_frame_bytes = offset;
+            /* Parameters */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P') {
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            func_frame_bytes = offset;
+        }
 
         /* Try to allocate variables to registers */
         try_register_allocate();
