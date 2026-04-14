@@ -151,6 +151,8 @@ static char  func_ret_type;     /* return type char */
 static int   func_has_return;   /* has explicit return statement */
 static int   func_epilogue_label; /* @N label for shared epilogue (-1 if none) */
 static int   func_is_simple;   /* 1 if simple function (no locals/params) */
+static int   hl_spilled;      /* 1 if HL-allocated param was pushed to hardware stack */
+static int   de_spilled;      /* 1 if DE-allocated param was pushed to hardware stack */
 
 /* ================================================================
  *  Array subscript base tracking (for R....*R...' pattern)
@@ -1320,7 +1322,8 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
 {
     int i;
 
-    /* Register saves are handled at function level, not per-call */
+    /* Register spills for function calls are handled by callers
+     * (division/modulo handlers) on a case-by-case basis. */
     (void)regs_to_save_across_call;
     (void)emit_reg_saves;
     (void)emit_reg_restores;
@@ -1530,7 +1533,16 @@ static void gen_expr_stmt(Cc2State *cc)
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
             if (lv) {
-                if (lv->reg != VK_NONE) {
+                if (lv->reg == VK_HL && hl_spilled) {
+                    /* HL param was saved on stack — restore it */
+                    emit_instr(cc, "pop", "hl");
+                    hl_spilled = 0;
+                    vpush(VK_HL, NULL, 0, lv->type);
+                } else if (lv->reg == VK_DE && de_spilled) {
+                    emit_instr(cc, "pop", "de");
+                    de_spilled = 0;
+                    vpush(VK_DE, NULL, 0, lv->type);
+                } else if (lv->reg != VK_NONE) {
                     vpush(lv->reg, NULL, 0, lv->type);
                 } else {
                     vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
@@ -1994,8 +2006,13 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                /* Load divisor into DE, dividend into HL */
+                /* Load divisor first, then save HL param if needed.
+                 * This matches CCC.ASM order: ld de,N / push hl */
                 gen_load_de(cc, b);
+                if (a->kind == VK_HL && !func_has_locals) {
+                    emit_instr(cc, "push", "hl");
+                    hl_spilled = 1;
+                }
                 gen_load_hl(cc, a);
                 if (type == 'I') {
                     decl_add("?dvihd", 0);
@@ -2371,7 +2388,15 @@ static void gen_cond_jump(Cc2State *cc)
             int id = atoi(tok + 1);
             LocalVar *lv = find_local(id);
             if (lv) {
-                if (lv->reg != VK_NONE)
+                if (lv->reg == VK_HL && hl_spilled) {
+                    emit_instr(cc, "pop", "hl");
+                    hl_spilled = 0;
+                    vpush(VK_HL, NULL, 0, lv->type);
+                } else if (lv->reg == VK_DE && de_spilled) {
+                    emit_instr(cc, "pop", "de");
+                    de_spilled = 0;
+                    vpush(VK_DE, NULL, 0, lv->type);
+                } else if (lv->reg != VK_NONE)
                     vpush(lv->reg, NULL, 0, lv->type);
                 else
                     vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
@@ -3053,6 +3078,8 @@ static void parse_function(Cc2State *cc)
     str_data_pos = 0;
     instr_count = 0;
     loop_depth = 0;
+    hl_spilled = 0;
+    de_spilled = 0;
     func_ret_type = ret_type;
     func_has_return = 0;
     func_epilogue_label = -1;
