@@ -2125,8 +2125,7 @@ static void gen_expr_stmt(Cc2State *cc)
                     gen_load_a(cc, a);
                     emit_instr(cc, "cp", "e");
                 } else {
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     decl_add("?cpshd", 0);
                     emit_instr(cc, "call", "?cpshd");
@@ -2146,8 +2145,7 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
+                gen_load_de(cc, b);
                 gen_load_hl(cc, a);
                 emit_instr(cc, "ld", "a,l");
                 emit_instr(cc, "xor", "e");
@@ -2164,8 +2162,7 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                gen_load_hl(cc, b);
-                emit_instr(cc, "ex", "de,hl");
+                gen_load_de(cc, b);
                 gen_load_hl(cc, a);
                 emit_instr(cc, "ld", "a,l");
                 emit_instr(cc, "and", "e");
@@ -2540,15 +2537,13 @@ static void gen_cond_jump(Cc2State *cc)
                            (cmp_type == 'N' || cmp_type == 'I')) {
                     /* Equality/inequality: or a / sbc hl,de
                      * Z flag set if equal */
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     emit_instr(cc, "or", "a");
                     emit_instr(cc, "sbc", "hl,de");
                 } else {
                     /* General comparison: use ?cpshd library call */
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     decl_add("?cpshd", 0);
                     emit_instr(cc, "call", "?cpshd");
@@ -2647,8 +2642,7 @@ static void gen_cond_jump(Cc2State *cc)
                     else emit_instr(cc, "sub", "e"); /* actually ld a,e then sub */
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    gen_load_hl(cc, b);
-                    emit_instr(cc, "ex", "de,hl");
+                    gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     if (first == '+') emit_instr(cc, "add", "hl,de");
                     else { emit_instr(cc, "or", "a"); emit_instr(cc, "sbc", "hl,de"); }
