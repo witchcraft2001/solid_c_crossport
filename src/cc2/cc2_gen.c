@@ -3179,10 +3179,26 @@ static void gen_cond_jump(Cc2State *cc)
                     else emit_instr(cc, "sub", "e"); /* actually ld a,e then sub */
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    gen_load_de(cc, b);
-                    gen_load_hl(cc, a);
-                    if (first == '+') emit_instr(cc, "add", "hl,de");
-                    else { emit_instr(cc, "or", "a"); emit_instr(cc, "sbc", "hl,de"); }
+                    /* Constant folding */
+                    if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                        int r = (first == '+') ? a->value + b->value : a->value - b->value;
+                        vpush(VK_IMM, NULL, r & 0xFFFF, type);
+                        break;
+                    }
+                    /* Commutative optimization for + */
+                    if (first == '+' && b->kind == VK_HL) {
+                        gen_load_de(cc, a);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (first == '+' && b->kind == VK_IMM) {
+                        gen_load_hl(cc, a);
+                        gen_load_de(cc, b);
+                        emit_instr(cc, "add", "hl,de");
+                    } else {
+                        gen_load_de(cc, b);
+                        gen_load_hl(cc, a);
+                        if (first == '+') emit_instr(cc, "add", "hl,de");
+                        else { emit_instr(cc, "or", "a"); emit_instr(cc, "sbc", "hl,de"); }
+                    }
                     vpush(VK_HL, NULL, 0, type);
                 }
             }
