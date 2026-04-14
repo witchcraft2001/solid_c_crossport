@@ -367,6 +367,37 @@ static void peephole_optimize(void)
             instr_count--;
             continue;
         }
+
+        /* 3-instruction patterns */
+        if (i < instr_count - 2) {
+            Instr *c = &instr_list[i + 2];
+
+            /* ld l,a / ld h,0 / ld a,l → ld l,a / ld h,0
+             * (widening then immediately extracting byte = redundant) */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "ld\tl,a") == 0 &&
+                strcmp(b->text, "ld\th,0") == 0 &&
+                strcmp(c->text, "ld\ta,l") == 0) {
+                for (j = i + 2; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                continue;
+            }
+
+            /* ld h,0 / ld a,l / ld h,0 → ld h,0 / ld a,l
+             * (redundant second ld h,0) */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "ld\th,0") == 0 &&
+                strcmp(b->text, "ld\ta,l") == 0 &&
+                strcmp(c->text, "ld\th,0") == 0) {
+                for (j = i + 2; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                continue;
+            }
+        }
     }
 }
 
@@ -1768,7 +1799,51 @@ static void gen_expr_stmt(Cc2State *cc)
             /* Assignment: :C, :N, :I, and compound :+C, :+N, :+I
              * Handles VK_ADDR_HL (indirect memory access) for both src and dest. */
             char type = tok[1];
-            /* Compound assignment: :+N means dest += value */
+            /* Compound assignment: :+N, :-N, :lN (shift-assign), :|N (OR-assign) */
+            if (type == 'l') {
+                /* Left-shift-assign: var <<= delta */
+                char ctype = tok[2];
+                VVal *delta = vpop();
+                VVal *var = vpop();
+                if (var && delta) {
+                    gen_load_hl(cc, var);
+                    if (delta->kind == VK_IMM && delta->value <= 7) {
+                        int n;
+                        for (n = 0; n < delta->value; n++)
+                            emit_instr(cc, "add", "hl,hl");
+                    } else if (delta->kind == VK_IMM && delta->value == 8) {
+                        emit_instr(cc, "ld", "h,l");
+                        emit_instr(cc, "ld", "l,0");
+                    } else {
+                        gen_load_a(cc, delta);
+                        emit_instr(cc, "ld", "b,a");
+                        decl_add("?slnhb", 0);
+                        emit_instr(cc, "call", "?slnhb");
+                    }
+                    gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, ctype);
+                }
+                break;
+            }
+            if (type == '|') {
+                /* OR-assign: var |= delta */
+                char ctype = tok[2];
+                VVal *delta = vpop();
+                VVal *var = vpop();
+                if (var && delta) {
+                    gen_load_de(cc, delta);
+                    gen_load_hl(cc, var);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "or", "e");
+                    emit_instr(cc, "ld", "l,a");
+                    emit_instr(cc, "ld", "a,h");
+                    emit_instr(cc, "or", "d");
+                    emit_instr(cc, "ld", "h,a");
+                    gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, ctype);
+                }
+                break;
+            }
             if (type == '+' || type == '-') {
                 char ctype = tok[2]; /* actual type: N, C, I */
                 VVal *delta = vpop();
@@ -2407,6 +2482,53 @@ static void gen_expr_stmt(Cc2State *cc)
                     emit_instr(cc, "ld", "b,a");
                     decl_add("?srnhb", 0);
                     emit_instr(cc, "call", "?srnhb");
+                    vpush(VK_HL, NULL, 0, type);
+                }
+            }
+            break;
+        }
+        case 'l': {
+            /* Left shift: lN, lC, lI */
+            char type = tok[1];
+            VVal *b = vpop();  /* shift count */
+            VVal *a = vpop();  /* value to shift */
+            if (a && b) {
+                /* Constant folding */
+                if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                    vpush(VK_IMM, NULL, (a->value << b->value) & 0xFFFF, type);
+                    break;
+                }
+                if (type == 'C') {
+                    /* 8-bit left shift */
+                    gen_load_a(cc, a);
+                    if (b->kind == VK_IMM) {
+                        int n;
+                        for (n = 0; n < b->value && n < 8; n++)
+                            emit_instr(cc, "add", "a,a");
+                    } else {
+                        gen_load_a(cc, b);
+                        emit_instr(cc, "ld", "b,a");
+                        gen_load_a(cc, a);
+                        decl_add("?slnab", 0);
+                        emit_instr(cc, "call", "?slnab");
+                    }
+                    vpush(VK_A, NULL, 0, 'C');
+                } else {
+                    /* 16-bit left shift */
+                    gen_load_hl(cc, a);
+                    if (b->kind == VK_IMM && b->value <= 7) {
+                        int n;
+                        for (n = 0; n < b->value; n++)
+                            emit_instr(cc, "add", "hl,hl");
+                    } else if (b->kind == VK_IMM && b->value == 8) {
+                        emit_instr(cc, "ld", "h,l");
+                        emit_instr(cc, "ld", "l,0");
+                    } else {
+                        gen_load_a(cc, b);
+                        emit_instr(cc, "ld", "b,a");
+                        decl_add("?slnhb", 0);
+                        emit_instr(cc, "call", "?slnhb");
+                    }
                     vpush(VK_HL, NULL, 0, type);
                 }
             }
