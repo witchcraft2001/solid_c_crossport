@@ -1283,9 +1283,47 @@ static int sp_relative_offset(int ix_offset, int extra_pushes)
  *  Generates Z80 code for a function call collected by gen_expr_stmt.
  *  Handles U-type (varargs) and F-type (register args) calls.
  * ================================================================ */
+/* Check if any register-allocated variables need saving across a call.
+ * Returns a bitmask: bit 0 = save DE, bit 1 = save HL, bit 2 = save BC */
+static int regs_to_save_across_call(void)
+{
+    int save = 0;
+    int i;
+    for (i = 0; i < local_count; i++) {
+        if (locals[i].reg == VK_DE) save |= 1;
+        else if (locals[i].reg == VK_HL) save |= 2;
+        else if (locals[i].reg == VK_BC) save |= 4;
+    }
+    return save;
+}
+
+/* Emit push instructions to save register-allocated variables.
+ * Returns number of pushes emitted. Order: DE first, then HL. */
+static int emit_reg_saves(Cc2State *cc, int save_mask)
+{
+    int count = 0;
+    if (save_mask & 1) { emit_instr(cc, "push", "de"); count++; }
+    if (save_mask & 2) { emit_instr(cc, "push", "hl"); count++; }
+    /* Note: BC is typically not saved (used as temp for args) */
+    return count;
+}
+
+/* Emit pop instructions to restore register-allocated variables.
+ * Reverse order of saves. */
+static void emit_reg_restores(Cc2State *cc, int save_mask)
+{
+    if (save_mask & 2) emit_instr(cc, "pop", "hl");
+    if (save_mask & 1) emit_instr(cc, "pop", "de");
+}
+
 static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, int arg_count)
 {
     int i;
+
+    /* Register saves are handled at function level, not per-call */
+    (void)regs_to_save_across_call;
+    (void)emit_reg_saves;
+    (void)emit_reg_restores;
 
     if (call_type == 'U') {
         /* Varargs: push args in reverse, HL = count, call, pop */
@@ -1826,7 +1864,7 @@ static void gen_expr_stmt(Cc2State *cc)
                             emit_instr(cc, "ld", buf);
                         }
                         rbase_active = 0;
-                        vpush(VK_ADDR_HL, NULL, 0, 'R');
+                        vpush(VK_ADDR_HL, NULL, 0, b->value == 1 ? 'C' : 'N');
                         (void)need_add_base;
                         break;
                     } else if (b->kind == VK_IMM && b->value == 1 &&
@@ -1843,7 +1881,7 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "add", "hl,sp");
                         emit_instr(cc, "add", "hl,de");
                         rbase_active = 0;
-                        vpush(VK_ADDR_HL, NULL, 0, 'R');
+                        vpush(VK_ADDR_HL, NULL, 0, (b->kind == VK_IMM && b->value == 1) ? 'C' : 'N');
                         (void)need_add_base;
                         break; /* skip the generic base-add code below */
                     } else if (b->kind == VK_IMM && b->value == 1) {
@@ -2113,14 +2151,30 @@ static void gen_expr_stmt(Cc2State *cc)
                     break;
                 }
                 if (from == 'N' && to == 'C') {
-                    if (top->kind != VK_A) {
+                    if (top->kind == VK_ADDR_HL && top->type == 'C') {
+                        /* Char-width address: just load byte */
+                        vsp--;
+                        emit_instr(cc, "ld", "a,(hl)");
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else if (top->kind == VK_ADDR_HL) {
+                        /* Non-char address: load 16-bit, extract byte */
+                        gen_load_hl(cc, top); vsp--;
+                        emit_instr(cc, "ld", "a,l");
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else if (top->kind != VK_A) {
                         gen_load_hl(cc, top); vsp--;
                         emit_instr(cc, "ld", "a,l");
                         vpush(VK_A, NULL, 0, 'C');
                     } else { top->type = 'C'; }
                 } else if ((from == 'C' && to == 'N') ||
                            (from == 'C' && to == 'I')) {
-                    if (top->kind == VK_A) {
+                    if (top->kind == VK_ADDR_HL && top->type == 'C') {
+                        /* Char-width address: ld l,(hl) / ld h,0 */
+                        vsp--;
+                        emit_instr(cc, "ld", "l,(hl)");
+                        emit_instr(cc, "ld", "h,0");
+                        vpush(VK_HL, NULL, 0, to);
+                    } else if (top->kind == VK_A) {
                         vsp--;
                         emit_instr(cc, "ld", "l,a");
                         emit_instr(cc, "ld", "h,0");
