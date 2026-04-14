@@ -1796,6 +1796,13 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "inc", "hl");
                         emit_instr(cc, "ld", "(hl),d");
                         vpush(VK_DE, NULL, 0, type);
+                    } else if (dest->kind == VK_DE) {
+                        /* Store to DE register: load directly */
+                        gen_load_de(cc, value);
+                        vpush(VK_DE, NULL, 0, type);
+                    } else if (dest->kind == VK_BC) {
+                        gen_load_bc(cc, value);
+                        vpush(VK_BC, NULL, 0, type);
                     } else {
                         gen_load_hl(cc, value);
                         gen_store_hl(cc, dest);
@@ -2119,7 +2126,13 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                if (type == 'C') {
+                if (type == 'C' && b->kind == VK_IMM) {
+                    /* Compare char with immediate: cp N */
+                    gen_load_a(cc, a);
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
+                    emit_instr(cc, "cp", buf);
+                } else if (type == 'C') {
                     gen_load_a(cc, b);
                     emit_instr(cc, "ld", "e,a");
                     gen_load_a(cc, a);
@@ -2493,7 +2506,15 @@ static void gen_cond_jump(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                if (cmp_type == 'C') {
+                if (cmp_type == 'C' && b->kind == VK_IMM) {
+                    /* Char comparison with immediate: cp N */
+                    gen_load_a(cc, a);
+                    {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
+                        emit_instr(cc, "cp", buf);
+                    }
+                } else if (cmp_type == 'C') {
                     gen_load_a(cc, b);
                     emit_instr(cc, "ld", "e,a");
                     gen_load_a(cc, a);
