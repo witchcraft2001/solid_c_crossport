@@ -1595,7 +1595,7 @@ static int expr_read_tok(Cc2State *cc, char *buf, int maxlen)
     }
     buf[0] = (char)ch;
     /* Some tokens are single char */
-    if (ch == '.' || ch == '\'' || ch == 'a' || ch == 'n' || ch == '"') {
+    if (ch == '.' || ch == '\'' || ch == 'a' || ch == 'n' || ch == '"' || ch == '@') {
         buf[1] = '\0';
         return ch;
     }
@@ -1640,9 +1640,32 @@ static int eval_one_token(Cc2State *cc, int first, const char *tok)
         break;
     }
     case '@': {
-        /* Address-of for arrays/pointers */
+        /* Dereference pointer or address-of array.
+         * For VK_GLOBAL (pointer variable): load pointer → VK_ADDR_HL.
+         * For VK_LOCAL (pointer variable): load pointer → VK_ADDR_HL.
+         * For arrays/other: mark as address. */
         VVal *top = vtop();
-        if (top) top->is_addr = 1;
+        if (top) {
+            if (top->kind == VK_GLOBAL && !top->is_addr) {
+                char buf[128];
+                snprintf(buf, sizeof(buf), "hl,(%s)", top->sym);
+                emit_instr(cc, "ld", buf);
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else if (top->kind == VK_LOCAL && !top->is_addr &&
+                       top->type != 'S' && top->type != 'U') {
+                /* Load pointer from local */
+                char buf[32];
+                snprintf(buf, sizeof(buf), "l,(ix%+d)", top->value);
+                emit_instr(cc, "ld", buf);
+                snprintf(buf, sizeof(buf), "h,(ix%+d)", top->value + 1);
+                emit_instr(cc, "ld", buf);
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else {
+                top->is_addr = 1;
+            }
+        }
         break;
     }
     default:
@@ -2943,6 +2966,34 @@ static void gen_cond_jump(Cc2State *cc)
                 if (tok[1] == 'R' && b->kind == VK_IMM && b->value == 1) {
                     vstack[vsp++] = *a;
                 } else {
+                    /* Constant folding */
+                    if (a->kind == VK_IMM && b->kind == VK_IMM) {
+                        vpush(VK_IMM, NULL, (a->value * b->value) & 0xFFFF, tok[1]);
+                        break;
+                    }
+                    /* Strength reduction */
+                    int mv = 0; VVal *vo = NULL;
+                    if (b->kind == VK_IMM) { mv = b->value; vo = a; }
+                    else if (a->kind == VK_IMM) { mv = a->value; vo = b; }
+                    if (mv == 2 && vo) {
+                        gen_load_hl(cc, vo);
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, tok[1]);
+                        break;
+                    } else if (mv == 4 && vo) {
+                        gen_load_hl(cc, vo);
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, tok[1]);
+                        break;
+                    } else if (mv == 256 && vo) {
+                        gen_load_hl(cc, vo);
+                        emit_instr(cc, "ld", "h,l");
+                        emit_instr(cc, "ld", "l,0");
+                        vpush(VK_HL, NULL, 0, tok[1]);
+                        break;
+                    }
+                    /* General: call ?mulhd */
                     if (b->kind == VK_IMM) {
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
