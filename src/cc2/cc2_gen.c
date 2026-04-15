@@ -2746,11 +2746,15 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *a = vpop();
             if (a && b) {
                 if (type == 'C' && b->kind == VK_IMM) {
-                    /* Compare char with immediate: cp N */
+                    /* Compare char with immediate: cp N or or a for 0 */
                     gen_load_a(cc, a);
-                    char buf[32];
-                    snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
-                    emit_instr(cc, "cp", buf);
+                    if ((b->value & 0xFF) == 0 && (first == '!' || first == '=')) {
+                        emit_instr(cc, "or", "a");
+                    } else {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
+                        emit_instr(cc, "cp", buf);
+                    }
                 } else if (type == 'C') {
                     gen_load_a(cc, b);
                     emit_instr(cc, "ld", "e,a");
@@ -3228,9 +3232,11 @@ static void gen_cond_jump(Cc2State *cc)
             VVal *a = vpop();
             if (a && b) {
                 if (cmp_type == 'C' && b->kind == VK_IMM) {
-                    /* Char comparison with immediate: cp N */
+                    /* Char comparison with immediate: cp N or or a for 0 */
                     gen_load_a(cc, a);
-                    {
+                    if ((b->value & 0xFF) == 0 && (first == '!' || first == '=')) {
+                        emit_instr(cc, "or", "a");
+                    } else {
                         char buf[32];
                         snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
                         emit_instr(cc, "cp", buf);
