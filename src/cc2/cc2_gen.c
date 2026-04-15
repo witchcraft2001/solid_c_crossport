@@ -368,11 +368,25 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* pop de / ex de,hl / add hl,de → pop de / add hl,de
+         * (commutative: popped + HL = HL + popped, skip the swap) */
+        if (i + 2 < instr_count && a->type == INSTR_INST &&
+            b->type == INSTR_INST && instr_list[i+2].type == INSTR_INST &&
+            strcmp(a->text, "pop\tde") == 0 &&
+            strcmp(b->text, "ex\tde,hl") == 0 &&
+            strcmp(instr_list[i+2].text, "add\thl,de") == 0) {
+            /* Remove the ex de,hl */
+            for (j = i + 1; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* pop de / ex de,hl → pop hl (if DE's old value isn't needed after) */
         if (a->type == INSTR_INST && b->type == INSTR_INST &&
             strcmp(a->text, "pop\tde") == 0 &&
             strcmp(b->text, "ex\tde,hl") == 0) {
-            /* Check if next instruction uses DE */
             int de_used = 0;
             if (i + 2 < instr_count) {
                 Instr *c = &instr_list[i + 2];
