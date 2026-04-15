@@ -1517,6 +1517,30 @@ partial:
         if (best_idx >= 0) {
             locals[best_idx].reg = VK_DE;
 
+            /* Try to assign BC to second most-used variable.
+             * Only for 2-byte scalar autos that aren't address-taken. */
+            {
+                int bc_idx = -1;
+                int bc_count = 0;
+                for (i = 0; i < local_count; i++) {
+                    if (i == best_idx) continue;
+                    if (locals[i].prefix != 'A') continue;
+                    if (locals[i].size != 2) continue;
+                    if (locals[i].type == 'S' || locals[i].type == 'U') continue;
+                    if (locals[i].type == 'C') continue; /* BC not good for char */
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (!vu || vu->count < 3) continue; /* only if well-used */
+                    if (vu->addr_taken) continue;
+                    if (vu->count > bc_count) {
+                        bc_count = vu->count;
+                        bc_idx = i;
+                    }
+                }
+                if (bc_idx >= 0) {
+                    locals[bc_idx].reg = VK_BC;
+                }
+            }
+
             /* Recalculate frame with param-first layout:
              * Params first (saved via push hl at IX-2),
              * then used autos, skipping register-allocated and unused */
@@ -2933,6 +2957,13 @@ static void gen_expr_stmt(Cc2State *cc)
                     } else if (b->kind == VK_DE) {
                         gen_load_hl(cc, a);
                         emit_instr(cc, "add", "hl,de");
+                    } else if (a->kind == VK_BC) {
+                        /* a in BC → load b to HL, add hl,bc */
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "add", "hl,bc");
+                    } else if (b->kind == VK_BC) {
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "add", "hl,bc");
                     } else if (b->kind == VK_HL) {
                         /* b already in HL — load a into DE (commutative) */
                         gen_load_de(cc, a);
@@ -4142,6 +4173,11 @@ static void gen_cond_jump(Cc2State *cc)
                     } else if (first == '+' && b->kind == VK_HL) {
                         gen_load_de(cc, a);
                         emit_instr(cc, "add", "hl,de");
+                    } else if (first == '+' && (a->kind == VK_BC || b->kind == VK_BC)) {
+                        /* BC operand: load other to HL, add hl,bc */
+                        if (a->kind == VK_BC) gen_load_hl(cc, b);
+                        else gen_load_hl(cc, a);
+                        emit_instr(cc, "add", "hl,bc");
                     } else if (first == '+' && b->kind == VK_IMM) {
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
