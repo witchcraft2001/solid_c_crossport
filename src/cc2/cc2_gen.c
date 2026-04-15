@@ -368,9 +368,49 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* pop de / ex de,hl → pop hl (if DE's old value isn't needed after) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "pop\tde") == 0 &&
+            strcmp(b->text, "ex\tde,hl") == 0) {
+            /* Check if next instruction uses DE */
+            int de_used = 0;
+            if (i + 2 < instr_count) {
+                Instr *c = &instr_list[i + 2];
+                if (c->type == INSTR_INST &&
+                    (strstr(c->text, ",de") || strstr(c->text, ",d") ||
+                     strstr(c->text, ",e") || strstr(c->text, "de,") ||
+                     strstr(c->text, "d,") || strstr(c->text, "e,")))
+                    de_used = 1;
+            }
+            if (!de_used) {
+                snprintf(a->text, INSTR_BUF, "pop\thl");
+                for (j = i + 1; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+        }
+
         /* 3-instruction patterns */
         if (i < instr_count - 2) {
             Instr *c = &instr_list[i + 2];
+
+            /* ld l,(ix+N) / ld h,(ix+M) / ex de,hl → ld e,(ix+N) / ld d,(ix+M) */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strncmp(a->text, "ld\tl,(ix", 8) == 0 &&
+                strncmp(b->text, "ld\th,(ix", 8) == 0 &&
+                strcmp(c->text, "ex\tde,hl") == 0) {
+                /* Replace: l→e, h→d, remove ex */
+                a->text[3] = 'e'; /* ld l → ld e */
+                b->text[3] = 'd'; /* ld h → ld d */
+                for (j = i + 2; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
 
             /* ld l,a / ld h,0 / ld a,l → ld l,a / ld h,0
              * (widening then immediately extracting byte = redundant) */
