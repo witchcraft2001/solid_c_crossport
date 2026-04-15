@@ -3101,9 +3101,10 @@ static void gen_cond_jump(Cc2State *cc)
                     gen_load_hl(cc, a);
                     emit_instr(cc, "or", "a");
                     emit_instr(cc, "sbc", "hl,de");
-                } else if (cmp_type == 'N' && (first == '<' || first == ']')) {
-                    /* Unsigned less-than: inline ld a,l/sub e/ld a,h/sbc a,d
-                     * Carry set if HL < DE */
+                } else if (cmp_type == 'N' && (first == '<' || first == ']') &&
+                           (a->kind == VK_HL || b->kind == VK_HL)) {
+                    /* Unsigned less-than with register operand: inline
+                     * ld a,l/sub e/ld a,h/sbc a,d — carry set if HL < DE */
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     emit_instr(cc, "ld", "a,l");
