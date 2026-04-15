@@ -473,6 +473,18 @@ static void peephole_optimize(void)
             }
         }
 
+        /* push hl / pop de → ex de,hl (register transfer) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "push\thl") == 0 &&
+            strcmp(b->text, "pop\tde") == 0) {
+            snprintf(a->text, INSTR_BUF, "ex\tde,hl");
+            for (j = i + 1; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* ld de,0 / add hl,de → remove both (adding 0 is no-op) */
         if (a->type == INSTR_INST && b->type == INSTR_INST &&
             strcmp(a->text, "ld\tde,0") == 0 &&
@@ -517,6 +529,22 @@ static void peephole_optimize(void)
                 continue;
             }
 
+            /* ld a,(hl) / ld l,a / ld h,0 → ld l,(hl) / ld h,0
+             * (direct byte load without going through A) */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "ld\ta,(hl)") == 0 &&
+                strcmp(b->text, "ld\tl,a") == 0 &&
+                strcmp(c->text, "ld\th,0") == 0) {
+                snprintf(a->text, INSTR_BUF, "ld\tl,(hl)");
+                /* Remove b (ld l,a) */
+                for (j = i + 1; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+
             /* ld h,0 / ld a,l / ld h,0 → ld h,0 / ld a,l
              * (redundant second ld h,0) */
             if (a->type == INSTR_INST && b->type == INSTR_INST &&
@@ -528,6 +556,33 @@ static void peephole_optimize(void)
                     instr_list[j] = instr_list[j + 1];
                 instr_count--;
                 continue;
+            }
+
+            /* 4-instruction: store+reload elimination
+             * ld (ix+N),l / ld (ix+M),h / ld l,(ix+N) / ld h,(ix+M) →
+             * ld (ix+N),l / ld (ix+M),h (remove redundant reload) */
+            if (i + 3 < instr_count) {
+                Instr *d = &instr_list[i + 3];
+                if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                    c->type == INSTR_INST && d->type == INSTR_INST &&
+                    strncmp(a->text, "ld\t(ix", 6) == 0 && strstr(a->text, "),l") &&
+                    strncmp(b->text, "ld\t(ix", 6) == 0 && strstr(b->text, "),h") &&
+                    strncmp(c->text, "ld\tl,(ix", 8) == 0 &&
+                    strncmp(d->text, "ld\th,(ix", 8) == 0) {
+                    /* Check that the offsets match */
+                    char off1[16] = "", off2[16] = "", off3[16] = "", off4[16] = "";
+                    sscanf(a->text, "ld\t(ix%15[^)]),l", off1);
+                    sscanf(b->text, "ld\t(ix%15[^)]),h", off2);
+                    sscanf(c->text, "ld\tl,(ix%15[^)])", off3);
+                    sscanf(d->text, "ld\th,(ix%15[^)])", off4);
+                    if (strcmp(off1, off3) == 0 && strcmp(off2, off4) == 0) {
+                        /* Remove the reload (c and d) */
+                        for (j = i + 2; j < instr_count - 2; j++)
+                            instr_list[j] = instr_list[j + 2];
+                        instr_count -= 2;
+                        continue;
+                    }
+                }
             }
         }
     }
