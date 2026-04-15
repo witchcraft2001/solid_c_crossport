@@ -17,6 +17,7 @@ static void parse_global(Cc2State *cc);
 static void parse_varsize(Cc2State *cc);
 static void parse_function(Cc2State *cc);
 static void parse_typedef(Cc2State *cc);
+static int expr_read_tok(Cc2State *cc, char *tok, int maxlen);
 
 /* ================================================================
  *  String constant storage
@@ -62,6 +63,91 @@ static int   instr_count;
 #define MAX_BODY_BUF 65536
 static char body_buf[MAX_BODY_BUF];
 static int  body_buf_len;
+
+/* ================================================================
+ *  Code Tree — intermediate representation for optimizer
+ *
+ *  Built during TMC parsing (Phase 1), analyzed (Phase 2),
+ *  used for register allocation (Phase 3).
+ *  Mirrors CCC.ASM's 21-byte node pool + A3A5B/A6131 optimizer.
+ * ================================================================ */
+#define CT_MAX_NODES    4096
+#define CT_MAX_STMTS    1024
+
+/* Node kinds (what this node represents) */
+#define CT_CONST    1   /* immediate constant: value = number */
+#define CT_VAR      2   /* variable reference: value = local id, sym = name */
+#define CT_GLOBAL   3   /* global variable: sym = asm name */
+#define CT_STRING   4   /* string constant: value = str index */
+#define CT_UNARY    5   /* unary op: op, left = operand */
+#define CT_BINARY   6   /* binary op: op, left/right = operands */
+#define CT_ASSIGN   7   /* assignment: op = type, left = dest, right = value */
+#define CT_CALL     8   /* function call: sym = func, children = args */
+#define CT_DEREF    9   /* dereference (') */
+#define CT_ADDR     10  /* address-of (@) */
+#define CT_CAST     11  /* type cast: op = from, type = to */
+#define CT_MEMBER   12  /* struct member: value = member id */
+#define CT_SUBSCR   13  /* array subscript (R) */
+#define CT_LABEL    14  /* label reference */
+#define CT_JUMP     15  /* conditional jump */
+#define CT_LOOP     16  /* loop start (d) */
+#define CT_BREAK    17  /* loop end (b) */
+#define CT_RETURN   18  /* return (y) */
+#define CT_COMMA    19  /* comma operator (,) */
+#define CT_STATIC   20  /* static local (T-type) */
+
+typedef struct {
+    u8   kind;          /* CT_xxx node kind */
+    u8   op;            /* operator char (+, -, *, etc.) */
+    char type;          /* result type: C, N, I, R */
+    int  value;         /* immediate value, var id, label, etc. */
+    char sym[48];       /* symbol name (for globals, funcs) */
+    int  left;          /* left child index (-1 = none) */
+    int  right;         /* right child index (-1 = none) */
+
+    /* Analysis fields (filled by tree walker) */
+    int  depth;         /* loop nesting depth at this node */
+    int  ref_count;     /* how many times this var is referenced */
+} CTNode;
+
+/* Statement in the function body */
+typedef struct {
+    int  kind;          /* 'e'=expr, 'j'=jump, 'd'=loop, 'b'=break, 'y'=return */
+    int  root;          /* root node index in ct_nodes[] */
+    int  label;         /* for 'j': target label; for 'd': loop label */
+    int  negate;        /* for 'j': condition negated */
+} CTStmt;
+
+static CTNode ct_nodes[CT_MAX_NODES];
+static int    ct_node_count;
+
+static CTStmt ct_stmts[CT_MAX_STMTS];
+static int    ct_stmt_count;
+
+/* Tree-building variable usage counters (for Phase 2 analysis) */
+#define CT_MAX_VARS 128
+typedef struct {
+    int  id;            /* local var id (A<n> or P<n>) */
+    char prefix;        /* 'A' or 'P' */
+    int  total_refs;    /* total reference count */
+    int  loop_refs;     /* references inside loops (weighted) */
+    int  max_depth;     /* max loop nesting depth of any reference */
+    int  crosses_call;  /* referenced both before and after a function call */
+    int  is_array_base; /* used as base pointer for array subscript */
+} CTVarInfo;
+
+static CTVarInfo ct_vars[CT_MAX_VARS];
+static int       ct_var_count;
+
+static int ct_alloc_node(void)
+{
+    if (ct_node_count >= CT_MAX_NODES) return -1;
+    int idx = ct_node_count++;
+    memset(&ct_nodes[idx], 0, sizeof(CTNode));
+    ct_nodes[idx].left = -1;
+    ct_nodes[idx].right = -1;
+    return idx;
+}
 
 /* ================================================================
  *  Name table: stores identifier strings, referenced by index
@@ -846,6 +932,477 @@ static void body_count_usage(void)
             }
         }
         pos++;
+    }
+}
+
+/* ================================================================
+ *  Code Tree Builder — Phase 1
+ *
+ *  Parses body_buf into tree nodes. Runs during the capture pass
+ *  (alongside body_count_usage), does NOT emit any code.
+ *  The tree will be used for enhanced variable analysis.
+ * ================================================================ */
+
+/* Tree-builder expression stack (parallel to gen_expr_stmt's vstack) */
+static int ct_estack[VSTACK_MAX]; /* node indices */
+static int ct_esp;
+
+static void ct_push(int node_idx) {
+    if (ct_esp < VSTACK_MAX) ct_estack[ct_esp++] = node_idx;
+}
+
+static int ct_pop(void) {
+    if (ct_esp > 0) return ct_estack[--ct_esp];
+    return -1;
+}
+
+static int ct_top(void) {
+    if (ct_esp > 0) return ct_estack[ct_esp - 1];
+    return -1;
+}
+
+/* Build a leaf node */
+static int ct_make_const(int value, char type) {
+    int n = ct_alloc_node();
+    if (n < 0) return -1;
+    ct_nodes[n].kind = CT_CONST;
+    ct_nodes[n].type = type;
+    ct_nodes[n].value = value;
+    return n;
+}
+
+static int ct_make_var(int id, char prefix, char type) {
+    int n = ct_alloc_node();
+    if (n < 0) return -1;
+    ct_nodes[n].kind = CT_VAR;
+    ct_nodes[n].type = type;
+    ct_nodes[n].value = id;
+    ct_nodes[n].op = (u8)prefix; /* 'A' or 'P' */
+    return n;
+}
+
+static int ct_make_global(const char *sym) {
+    int n = ct_alloc_node();
+    if (n < 0) return -1;
+    ct_nodes[n].kind = CT_GLOBAL;
+    ct_nodes[n].type = 'N';
+    strncpy(ct_nodes[n].sym, sym, sizeof(ct_nodes[n].sym) - 1);
+    return n;
+}
+
+/* Build an operator node linking children */
+static int ct_make_unary(u8 op, char type, int child) {
+    int n = ct_alloc_node();
+    if (n < 0) return -1;
+    ct_nodes[n].kind = CT_UNARY;
+    ct_nodes[n].op = op;
+    ct_nodes[n].type = type;
+    ct_nodes[n].left = child;
+    return n;
+}
+
+static int ct_make_binary(u8 op, char type, int left, int right) {
+    int n = ct_alloc_node();
+    if (n < 0) return -1;
+    ct_nodes[n].kind = CT_BINARY;
+    ct_nodes[n].op = op;
+    ct_nodes[n].type = type;
+    ct_nodes[n].left = left;
+    ct_nodes[n].right = right;
+    return n;
+}
+
+/* Build expression tree from one TMC expression line.
+ * Uses the same token reading as gen_expr_stmt.
+ * Returns root node index, or -1 on error/empty. */
+static int ct_build_expr(Cc2State *cc)
+{
+    char tok[256];
+    ct_esp = 0;
+
+    for (;;) {
+        int first = expr_read_tok(cc, tok, sizeof(tok));
+        if (first == 0) break;
+
+        switch (first) {
+        case 'A': case 'P': {
+            int id = atoi(tok + 1);
+            int n = ct_make_var(id, (char)first, 'N');
+            ct_push(n);
+            break;
+        }
+        case 'G': {
+            /* Store raw name — asm name conversion done later */
+            int n = ct_make_global(tok + 1);
+            ct_push(n);
+            break;
+        }
+        case 'T': {
+            /* Static local: T62 → ?62 */
+            char asmn[128];
+            snprintf(asmn, sizeof(asmn), "?%s", tok + 1);
+            int n = ct_make_global(asmn);
+            ct_push(n);
+            break;
+        }
+        case '#': {
+            int val;
+            if (tok[1] == 'C') val = 1;
+            else if (tok[1] == 'R' || tok[1] == 'N' || tok[1] == 'I') val = 2;
+            else if (tok[1] == 'S') val = 2; /* struct size — approximate */
+            else if (tok[1] == 'V') {
+                int vnum = atoi(tok + 2); val = 0;
+                int vi; for (vi = 0; vi < cc->sym_count; vi++)
+                    if (cc->sym[vi].type == SYM_VAR && cc->sym[vi].name == (u16)vnum)
+                        { val = cc->sym[vi].value; break; }
+                if (val == 0) val = 2;
+            } else val = atoi(tok + 1);
+            int n = ct_make_const(val, 'N');
+            ct_push(n);
+            break;
+        }
+        case '"': {
+            /* String constant — skip content, don't call parse_string_const
+             * (that would allocate string labels prematurely) */
+            { int sc; for (;;) { sc = tmc_read_char(cc); if (sc == '"' || sc == 0x1A) break; } }
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_STRING;
+                ct_nodes[n].value = 0;
+                ct_nodes[n].type = 'R';
+            }
+            ct_push(n);
+            break;
+        }
+        case '_': {
+            /* Negate */
+            int child = ct_pop();
+            int n = ct_make_unary('_', tok[1], child);
+            ct_push(n);
+            break;
+        }
+        case '+': case '-': case '*': case '/': case '%':
+        case '|': case '&': case '^': case 'l': case 'r': {
+            int right = ct_pop();
+            int left = ct_pop();
+            int n = ct_make_binary((u8)first, tok[1], left, right);
+            ct_push(n);
+            break;
+        }
+        case '=': case '!': case '<': case '>': case '[': case ']': {
+            /* Comparison */
+            int right = ct_pop();
+            int left = ct_pop();
+            int n = ct_make_binary((u8)first, tok[1], left, right);
+            ct_push(n);
+            break;
+        }
+        case '?': {
+            /* Ternary: cond ? true_val : false_val */
+            int false_val = ct_pop();
+            int true_val = ct_pop();
+            int cond = ct_pop();
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_BINARY;
+                ct_nodes[n].op = '?';
+                ct_nodes[n].type = tok[1];
+                ct_nodes[n].left = true_val;
+                ct_nodes[n].right = false_val;
+                /* cond is implicit — it was already evaluated */
+            }
+            ct_push(n);
+            break;
+        }
+        case ':': {
+            /* Assignment: :C, :N, :I, :+C, :-N, etc. */
+            int val = ct_pop();
+            int dest = ct_pop();
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_ASSIGN;
+                ct_nodes[n].op = (u8)tok[1]; /* type or compound op */
+                ct_nodes[n].type = tok[2] ? tok[2] : tok[1];
+                ct_nodes[n].left = dest;
+                ct_nodes[n].right = val;
+            }
+            ct_push(n);
+            break;
+        }
+        case '\'': {
+            /* Dereference */
+            int child = ct_pop();
+            int n = ct_make_unary('\'', 'N', child);
+            ct_push(n);
+            break;
+        }
+        case '@': {
+            /* Address-of or array subscript pointer */
+            int child = ct_pop();
+            int n = ct_make_unary('@', 'R', child);
+            ct_push(n);
+            break;
+        }
+        case 'R': {
+            /* Array subscript: pops index and base */
+            int idx = ct_pop();
+            int base = ct_pop();
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_SUBSCR;
+                ct_nodes[n].op = 'R';
+                ct_nodes[n].type = tok[1];
+                ct_nodes[n].left = base;
+                ct_nodes[n].right = idx;
+            }
+            ct_push(n);
+            break;
+        }
+        case 'N': case 'C': case 'I': {
+            /* Type cast */
+            int child = ct_top();
+            if (child >= 0) {
+                /* Just update type on existing node */
+                ct_nodes[child].type = tok[1];
+            }
+            break;
+        }
+        case 'M': {
+            /* Struct member */
+            int mnum = atoi(tok + 1);
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_MEMBER;
+                ct_nodes[n].value = mnum;
+                ct_nodes[n].type = 'N';
+            }
+            ct_push(n);
+            break;
+        }
+        case '.': {
+            /* Member access: pops struct and member */
+            int member = ct_pop();
+            int base = ct_pop();
+            int n = ct_make_binary('.', 'N', base, member);
+            ct_push(n);
+            break;
+        }
+        case 'a': {
+            /* Address-of (result is pointer) */
+            int child = ct_pop();
+            int n = ct_make_unary('a', 'R', child);
+            ct_push(n);
+            break;
+        }
+        case ';': {
+            /* Compound inc/dec: ;+N, ;-N */
+            int child = ct_pop();
+            int n = ct_make_unary(';', tok[2], child);
+            ct_nodes[n].op = (u8)tok[1]; /* + or - */
+            ct_push(n);
+            break;
+        }
+        case ',': {
+            /* Comma: push count for function call */
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_COMMA;
+                ct_nodes[n].type = 'N';
+            }
+            ct_push(n);
+            break;
+        }
+        case 'X': case 'Y': {
+            /* Function call in expression — skip for tree building */
+            /* The call and args are handled by parse_func_call in gen_expr_stmt */
+            /* For tree, just record the call node */
+            int n = ct_alloc_node();
+            if (n >= 0) {
+                ct_nodes[n].kind = CT_CALL;
+                strncpy(ct_nodes[n].sym, tok + 1, sizeof(ct_nodes[n].sym) - 1);
+                ct_nodes[n].type = 'N';
+            }
+            ct_push(n);
+            break;
+        }
+        default:
+            /* Unknown token — skip */
+            break;
+        }
+    }
+
+    /* Root is whatever's left on stack */
+    return ct_pop();
+}
+
+/* Build code tree for entire function body from body_buf.
+ * Called after body_capture(), runs in parallel with body_count_usage(). */
+static void ct_build_body(Cc2State *cc)
+{
+    ct_node_count = 0;
+    ct_stmt_count = 0;
+    ct_var_count = 0;
+
+    /* Save existing replay state */
+    const char *saved_replay = cc->replay_buf;
+    int saved_pos = cc->replay_pos;
+    int saved_len = cc->replay_len;
+    int saved_pb = cc->pushback_count;
+
+    /* Setup replay from body_buf */
+    cc->replay_buf = body_buf;
+    cc->replay_pos = 0;
+    cc->replay_len = body_buf_len;
+    cc->pushback_count = 0;
+
+    int loop_depth = 0;
+    int ch;
+
+    for (;;) {
+        ch = tmc_read_char(cc);
+        if (ch == '}' || ch == 0x1A) break;
+
+        if (ch == 'L') {
+            /* Label definition */
+            int lnum = tmc_read_number(cc);
+            tmc_skip_line(cc);
+            /* Record as a label statement */
+            if (ct_stmt_count < CT_MAX_STMTS) {
+                ct_stmts[ct_stmt_count].kind = 'L';
+                ct_stmts[ct_stmt_count].label = lnum;
+                ct_stmts[ct_stmt_count].root = -1;
+                ct_stmt_count++;
+            }
+            continue;
+        }
+
+        if (ch == '\t') {
+            ch = tmc_read_char(cc);
+
+            if (ch == 'd') {
+                /* Loop start */
+                tmc_skip_line(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'd';
+                    ct_stmts[ct_stmt_count].root = -1;
+                    ct_stmt_count++;
+                }
+                loop_depth++;
+                continue;
+            }
+
+            if (ch == 'b') {
+                /* Loop end */
+                tmc_skip_line(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'b';
+                    ct_stmts[ct_stmt_count].root = -1;
+                    ct_stmt_count++;
+                }
+                if (loop_depth > 0) loop_depth--;
+                continue;
+            }
+
+            if (ch == 'j') {
+                /* Conditional jump */
+                tmc_expect_tab(cc);
+                ch = tmc_read_char(cc); /* 'L' */
+                int lnum = tmc_read_number(cc);
+                tmc_expect_tab(cc);
+                /* Build expression tree for the condition */
+                int root = ct_build_expr(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'j';
+                    ct_stmts[ct_stmt_count].label = lnum;
+                    ct_stmts[ct_stmt_count].root = root;
+                    ct_stmt_count++;
+                }
+                continue;
+            }
+
+            if (ch == 'y') {
+                /* Return */
+                char rtype = (char)tmc_read_char(cc);
+                int root = ct_build_expr(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'y';
+                    ct_stmts[ct_stmt_count].root = root;
+                    ct_stmt_count++;
+                }
+                (void)rtype;
+                continue;
+            }
+
+            /* Expression statement (including function calls) */
+            tmc_pushback(cc, ch);
+            int root = ct_build_expr(cc);
+            if (ct_stmt_count < CT_MAX_STMTS) {
+                ct_stmts[ct_stmt_count].kind = 'e';
+                ct_stmts[ct_stmt_count].root = root;
+                ct_stmt_count++;
+            }
+            continue;
+        }
+
+        /* Skip other characters */
+    }
+
+    /* Restore previous replay state */
+    cc->replay_buf = saved_replay;
+    cc->replay_pos = saved_pos;
+    cc->replay_len = saved_len;
+    cc->pushback_count = saved_pb;
+}
+
+/* ================================================================
+ *  Phase 2: Analyze code tree — count variable references
+ *
+ *  Walk all tree nodes and count how many times each variable
+ *  is referenced, at what loop depth, and whether it's used
+ *  as an array base.
+ * ================================================================ */
+static CTVarInfo *ct_find_var(int id) {
+    int i;
+    for (i = 0; i < ct_var_count; i++)
+        if (ct_vars[i].id == id) return &ct_vars[i];
+    return NULL;
+}
+
+static void ct_count_node(int idx, int depth) {
+    if (idx < 0 || idx >= ct_node_count) return;
+    CTNode *n = &ct_nodes[idx];
+
+    if (n->kind == CT_VAR) {
+        CTVarInfo *v = ct_find_var(n->value);
+        if (!v && ct_var_count < CT_MAX_VARS) {
+            v = &ct_vars[ct_var_count++];
+            memset(v, 0, sizeof(*v));
+            v->id = n->value;
+            v->prefix = (char)n->op;
+        }
+        if (v) {
+            v->total_refs++;
+            v->loop_refs += depth;
+            if (depth > v->max_depth) v->max_depth = depth;
+        }
+    }
+
+    /* Recurse into children */
+    ct_count_node(n->left, depth);
+    ct_count_node(n->right, depth);
+}
+
+static void ct_analyze_body(void) {
+    ct_var_count = 0;
+    int depth = 0;
+    int i;
+    for (i = 0; i < ct_stmt_count; i++) {
+        CTStmt *s = &ct_stmts[i];
+        if (s->kind == 'd') depth++;
+        else if (s->kind == 'b') { if (depth > 0) depth--; }
+        if (s->root >= 0) {
+            ct_count_node(s->root, depth);
+        }
     }
 }
 
@@ -4449,6 +5006,10 @@ static void parse_function(Cc2State *cc)
         /* Count variable usage */
         body_count_usage();
 
+        /* Build code tree (parallel analysis — does not affect code generation) */
+        ct_build_body(cc);
+        ct_analyze_body();
+
         /* Eliminate unused variables from frame (param-first layout) */
         {
             int i;
@@ -4503,6 +5064,8 @@ static void parse_function(Cc2State *cc)
          * Do lightweight body scan for spill analysis, then single-pass */
         body_capture(cc);
         body_count_usage(); /* sets param_used_after_call */
+        ct_build_body(cc);
+        ct_analyze_body();
         if (param_used_after_call) {
             int i;
             for (i = 0; i < local_count; i++) {
