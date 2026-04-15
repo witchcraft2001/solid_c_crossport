@@ -1582,8 +1582,22 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
             emit_instr(cc, "ld", buf);
         }
         emit_instr(cc, "call", asmname);
-        for (i = 0; i < pushes; i++) {
-            emit_instr(cc, "pop", "bc");
+        /* Clean up pushed args */
+        if (pushes >= 5) {
+            /* Bulk SP adjustment: save result, adjust SP, restore */
+            emit_instr(cc, "ex", "de,hl");
+            {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", pushes * 2);
+                emit_instr(cc, "ld", buf);
+            }
+            emit_instr(cc, "add", "hl,sp");
+            emit_instr(cc, "ld", "sp,hl");
+            emit_instr(cc, "ex", "de,hl");
+        } else {
+            for (i = 0; i < pushes; i++) {
+                emit_instr(cc, "pop", "bc");
+            }
         }
     } else { /* F-type */
         if (arg_count == 0) {
