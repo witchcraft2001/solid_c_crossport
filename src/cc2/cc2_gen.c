@@ -2780,15 +2780,32 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "ld", "h,0");
                         vpush(VK_HL, NULL, 0, to);
                     } else if (top->kind == VK_A) {
-                        vsp--;
-                        emit_instr(cc, "ld", "l,a");
-                        emit_instr(cc, "ld", "h,0");
-                        vpush(VK_HL, NULL, 0, to);
+                        /* Check if VK_ADDR_HL is below us on vstack —
+                         * if so, don't widen (it would clobber the address).
+                         * The :C handler will use A directly. */
+                        int addr_below = 0;
+                        if (vsp >= 2 && vstack[vsp-2].kind == VK_ADDR_HL)
+                            addr_below = 1;
+                        if (addr_below) {
+                            /* Keep as VK_A, just update type */
+                            top->type = to;
+                        } else {
+                            vsp--;
+                            emit_instr(cc, "ld", "l,a");
+                            emit_instr(cc, "ld", "h,0");
+                            vpush(VK_HL, NULL, 0, to);
+                        }
                     } else if (top->kind != VK_HL) {
-                        gen_load_a(cc, top); vsp--;
-                        emit_instr(cc, "ld", "l,a");
-                        emit_instr(cc, "ld", "h,0");
-                        vpush(VK_HL, NULL, 0, to);
+                        /* If VK_ADDR_HL is below, don't widen — keep as VK_A */
+                        if (vsp >= 2 && vstack[vsp-2].kind == VK_ADDR_HL) {
+                            gen_load_a(cc, top); vsp--;
+                            vpush(VK_A, NULL, 0, to);
+                        } else {
+                            gen_load_a(cc, top); vsp--;
+                            emit_instr(cc, "ld", "l,a");
+                            emit_instr(cc, "ld", "h,0");
+                            vpush(VK_HL, NULL, 0, to);
+                        }
                     } else { top->type = to; }
                 } else if ((from == 'N' && to == 'I') ||
                            (from == 'I' && to == 'N')) {
