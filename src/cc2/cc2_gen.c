@@ -28,6 +28,7 @@ typedef struct {
     int  label;             /* label number (63999, 63998, ...) */
     int  data_offset;       /* offset into str_data[] */
     int  data_len;          /* number of byte values */
+    int  emitted;           /* 1 if already output to ASM */
 } StrConst;
 
 static StrConst str_consts[MAX_STRINGS];
@@ -258,6 +259,7 @@ static int str_const_new(Cc2State *cc)
     str_consts[idx].label = cc->str_label--;
     str_consts[idx].data_offset = str_data_pos;
     str_consts[idx].data_len = 0;
+    str_consts[idx].emitted = 0;
     return idx;
 }
 
@@ -283,6 +285,7 @@ static void emit_string_consts(Cc2State *cc)
 {
     int i, j;
     for (i = 0; i < str_const_count; i++) {
+        if (str_consts[i].emitted) continue;
         out_set_cseg(cc);
         out_str_label(cc, str_consts[i].label);
         cc->db_count = 0;
@@ -292,6 +295,7 @@ static void emit_string_consts(Cc2State *cc)
             out_db_byte(cc, str_data[off + j]);
         }
         out_db_finish(cc);
+        str_consts[i].emitted = 1;
     }
 }
 
@@ -1295,8 +1299,12 @@ static void gen_load_a(Cc2State *cc, VVal *v)
     char buf[128];
     switch (v->kind) {
     case VK_IMM:
-        snprintf(buf, sizeof(buf), "a,%d", v->value & 0xFF);
-        emit_instr(cc, "ld", buf);
+        if ((v->value & 0xFF) == 0) {
+            emit_instr(cc, "xor", "a");
+        } else {
+            snprintf(buf, sizeof(buf), "a,%d", v->value & 0xFF);
+            emit_instr(cc, "ld", buf);
+        }
         break;
     case VK_GLOBAL:
         snprintf(buf, sizeof(buf), "a,(%s)", v->sym);
@@ -1826,6 +1834,13 @@ static void gen_expr_stmt(Cc2State *cc)
             if (!found) decl_add(asmn, 0);
             break;
         }
+        case 'T': {
+            /* Static local variable reference: T62 → ?62 */
+            char asmn[128];
+            snprintf(asmn, sizeof(asmn), "?%s", tok + 1);
+            vpush(VK_GLOBAL, asmn, 0, 'N');
+            break;
+        }
         case '#': {
             /* Immediate constant or type size:
              * #C=1, #R=2, #N=2, #I=2, #S<n>=struct size, #V<n>=var size */
@@ -2092,8 +2107,14 @@ static void gen_expr_stmt(Cc2State *cc)
                         vpush(VK_A, NULL, 0, 'C');
                     } else if (dest->kind == VK_ADDR_HL) {
                         /* Dest is indirect: store byte to (HL) */
-                        gen_load_a(cc, value);
-                        emit_instr(cc, "ld", "(hl),a");
+                        if (value->kind == VK_IMM) {
+                            char ibuf[32];
+                            snprintf(ibuf, sizeof(ibuf), "(hl),%d", value->value & 0xFF);
+                            emit_instr(cc, "ld", ibuf);
+                        } else {
+                            gen_load_a(cc, value);
+                            emit_instr(cc, "ld", "(hl),a");
+                        }
                         vpush(VK_A, NULL, 0, 'C');
                     } else {
                         gen_load_a(cc, value);
@@ -2120,10 +2141,21 @@ static void gen_expr_stmt(Cc2State *cc)
                         vpush(VK_HL, NULL, 0, type);
                     } else if (dest->kind == VK_ADDR_HL) {
                         /* Dest is indirect: store 16-bit to (HL) */
-                        gen_load_de(cc, value);
-                        emit_instr(cc, "ld", "(hl),e");
-                        emit_instr(cc, "inc", "hl");
-                        emit_instr(cc, "ld", "(hl),d");
+                        if (value->kind == VK_IMM) {
+                            int lo = value->value & 0xFF;
+                            int hi = (value->value >> 8) & 0xFF;
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "(hl),%d", lo);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "inc", "hl");
+                            snprintf(buf, sizeof(buf), "(hl),%d", hi);
+                            emit_instr(cc, "ld", buf);
+                        } else {
+                            gen_load_de(cc, value);
+                            emit_instr(cc, "ld", "(hl),e");
+                            emit_instr(cc, "inc", "hl");
+                            emit_instr(cc, "ld", "(hl),d");
+                        }
                         vpush(VK_DE, NULL, 0, type);
                     } else if (dest->kind == VK_DE) {
                         /* Store to DE register: load directly */
@@ -3083,6 +3115,13 @@ static void gen_cond_jump(Cc2State *cc)
             if (!found) decl_add(asmn, 0);
             break;
         }
+        case 'T': {
+            /* Static local variable reference: T62 → ?62 */
+            char asmn[128];
+            snprintf(asmn, sizeof(asmn), "?%s", tok + 1);
+            vpush(VK_GLOBAL, asmn, 0, 'N');
+            break;
+        }
         case '#': {
             int val;
             if (tok[1] == 'S') val = lookup_struct_size(cc, atoi(tok + 2));
@@ -3156,7 +3195,7 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "inc", "a");
                 } else if ((first == '!' || first == '=') &&
                            (cmp_type == 'N' || cmp_type == 'I')) {
-                    /* Equality/inequality: use ?cpshd (matches ref) */
+                    /* Equality/inequality: use ?cpshd (matches ref for most programs) */
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     decl_add("?cpshd", 0);
@@ -3789,6 +3828,29 @@ static void parse_global(Cc2State *cc)
                         out_instruction(cc, "dw", buf);
                     }
                     tmc_skip_line(cc);
+                } else if (ch == 'I' || ch == 'N' || ch == 'C') {
+                    /* Integer/numeric initializer: I #0, I #1_I, etc. */
+                    tmc_expect_tab(cc);
+                    ch = tmc_read_char(cc); /* skip '#' */
+                    int val = tmc_read_number(cc);
+                    /* Check for _I (negate) suffix */
+                    /* Check for _I (negate): may be immediately after number
+                     * or after a tab separator */
+                    ch = tmc_read_char(cc);
+                    if (ch == '\t') ch = tmc_read_char(cc); /* skip tab */
+                    if (ch == '_') {
+                        tmc_read_char(cc); /* skip type char */
+                        val = -val;
+                        ch = tmc_read_char(cc);
+                    }
+                    /* Emit dw */
+                    char buf[32];
+                    int v = val;
+                    if (v < 0) v = 65536 + v;
+                    snprintf(buf, sizeof(buf), "%d", v);
+                    out_instruction(cc, "dw", buf);
+                    /* Skip rest of line */
+                    while (ch != '\n' && ch != 0x1A) ch = tmc_read_char(cc);
                 } else {
                     tmc_skip_line(cc);
                 }
@@ -3861,11 +3923,107 @@ static void parse_varsize(Cc2State *cc)
 }
 
 /* ================================================================
- *  Parse T (typedef)
+ *  Parse T (typedef / static local / initialized table)
+ *
+ *  Three forms in TMC:
+ *    T2 I         — typedef (abstract type alias), ignored
+ *    T62 N        — static local variable, emits dseg ?62: ds 2
+ *    T52 (        — initialized table, emits cseg ?52: db ...
  * ================================================================ */
 static void parse_typedef(Cc2State *cc)
 {
-    tmc_skip_line(cc);
+    int num = tmc_read_number(cc);
+    tmc_expect_tab(cc);
+
+    int ch = tmc_read_char(cc);
+
+    if (ch == '(') {
+        /* Initialized table: T52 ( C #3 CI ... ) */
+        tmc_skip_line(cc); /* skip rest of opening line */
+
+        /* Determine element type from first data line */
+        /* Read all entries */
+        int values[4096];
+        int count = 0;
+        char elem_type = 'C'; /* default to byte */
+
+        for (;;) {
+            ch = tmc_read_char(cc);
+            if (ch == ')') { tmc_skip_line(cc); break; }
+            if (ch == '\t') {
+                /* Read element type */
+                char etype = (char)tmc_read_char(cc);
+                if (count == 0) elem_type = etype;
+                tmc_expect_tab(cc);
+                /* Read value: #N or #N_I (negative) */
+                ch = tmc_read_char(cc); /* skip '#' */
+                int val = tmc_read_number(cc);
+                /* Check for CI (char→int cast) or _I (negate) suffix */
+                ch = tmc_read_char(cc);
+                if (ch == '\t') ch = tmc_read_char(cc); /* skip tab */
+                if (ch == '_') {
+                    /* _I = negate */
+                    tmc_read_char(cc); /* skip 'I' */
+                    val = -val;
+                }
+                /* Skip rest of line (CI suffix etc.) */
+                while (ch != '\n' && ch != 0x1A) ch = tmc_read_char(cc);
+
+                if (count < 4096) values[count++] = val;
+            } else {
+                tmc_skip_line(cc);
+            }
+        }
+
+        /* Emit table in cseg */
+        out_set_cseg(cc);
+        char label[32];
+        snprintf(label, sizeof(label), "?%d", num);
+        io_write_str(cc, label);
+        io_write_str(cc, ":\n");
+
+        if (elem_type == 'C') {
+            /* Byte table: one db per element (matches original) */
+            int i;
+            for (i = 0; i < count; i++) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%d", values[i] & 0xFF);
+                out_instruction(cc, "db", buf);
+            }
+        } else {
+            /* Word table: dw values */
+            int i;
+            for (i = 0; i < count; i++) {
+                char buf[32];
+                int v = values[i];
+                if (v < 0) v = 65536 + v; /* two's complement */
+                snprintf(buf, sizeof(buf), "%d", v);
+                out_instruction(cc, "dw", buf);
+            }
+        }
+    } else if (ch >= 'A' && ch <= 'Z') {
+        /* Type-only declaration: could be typedef or static local */
+        char type_ch = (char)ch;
+        tmc_skip_line(cc);
+
+        /* Check if this T-number is referenced in function bodies.
+         * Static locals use T<n> directly in expressions.
+         * Typedefs are only referenced as type annotations.
+         * Heuristic: N, I, C, R types used between functions = static locals.
+         * Complex types (referenced as struct etc.) = typedefs. */
+        if (type_ch == 'N' || type_ch == 'I' || type_ch == 'C' || type_ch == 'R') {
+            /* Emit as static local in dseg */
+            int sz = type_size(type_ch);
+            out_set_dseg(cc);
+            char buf[64];
+            snprintf(buf, sizeof(buf), "?%d:\tds\t%d", num, sz);
+            io_write_str(cc, buf);
+            io_write_newline(cc);
+        }
+        /* Otherwise: typedef, ignored */
+    } else {
+        tmc_skip_line(cc);
+    }
 }
 
 /* ================================================================
