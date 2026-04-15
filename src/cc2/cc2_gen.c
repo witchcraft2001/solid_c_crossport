@@ -2180,15 +2180,27 @@ static void gen_expr_stmt(Cc2State *cc)
                         /* 1+b: inc hl */
                         gen_load_hl(cc, b);
                         emit_instr(cc, "inc", "hl");
+                    } else if (b->kind == VK_IMM && a->kind == VK_DE) {
+                        /* a in DE, b constant → load b to HL, add (commutative) */
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (a->kind == VK_IMM && b->kind == VK_DE) {
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "add", "hl,de");
                     } else if (b->kind == VK_IMM) {
-                        /* Constant: load to DE, first op in HL */
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
                         emit_instr(cc, "add", "hl,de");
                     } else if (a->kind == VK_IMM) {
-                        /* Swap: constant to DE, variable to HL */
                         gen_load_hl(cc, b);
                         gen_load_de(cc, a);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (a->kind == VK_DE) {
+                        /* a in DE, b needs loading → load b to HL */
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (b->kind == VK_DE) {
+                        gen_load_hl(cc, a);
                         emit_instr(cc, "add", "hl,de");
                     } else if (b->kind == VK_HL) {
                         /* b already in HL — load a into DE (commutative) */
@@ -2457,8 +2469,13 @@ static void gen_expr_stmt(Cc2State *cc)
                         break;
                     }
 
-                    /* General case: HL * DE → call ?mulhd */
-                    if (b->kind == VK_IMM) {
+                    /* General case: HL * DE → call ?mulhd (commutative) */
+                    if (b->kind == VK_IMM && a->kind == VK_DE) {
+                        /* a in DE, b constant → load b to HL, keep DE */
+                        gen_load_hl(cc, b);
+                    } else if (a->kind == VK_IMM && b->kind == VK_DE) {
+                        gen_load_hl(cc, a);
+                    } else if (b->kind == VK_IMM) {
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
                     } else if (a->kind == VK_IMM) {
@@ -2468,6 +2485,10 @@ static void gen_expr_stmt(Cc2State *cc)
                         gen_load_de(cc, a);
                     } else if (a->kind == VK_HL) {
                         gen_load_de(cc, b);
+                    } else if (a->kind == VK_DE) {
+                        gen_load_hl(cc, b);
+                    } else if (b->kind == VK_DE) {
+                        gen_load_hl(cc, a);
                     } else {
                         gen_load_de(cc, b);
                         gen_load_hl(cc, a);
