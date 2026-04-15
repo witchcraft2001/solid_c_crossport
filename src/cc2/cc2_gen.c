@@ -3126,12 +3126,11 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "inc", "a");
                 } else if ((first == '!' || first == '=') &&
                            (cmp_type == 'N' || cmp_type == 'I')) {
-                    /* Equality/inequality: or a / sbc hl,de
-                     * Z flag set if equal */
+                    /* Equality/inequality: use ?cpshd (matches ref) */
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
-                    emit_instr(cc, "or", "a");
-                    emit_instr(cc, "sbc", "hl,de");
+                    decl_add("?cpshd", 0);
+                    emit_instr(cc, "call", "?cpshd");
                 } else if (cmp_type == 'N' && (first == '<' || first == ']') &&
                            (a->kind == VK_HL || b->kind == VK_HL)) {
                     /* Unsigned less-than with register operand: inline
