@@ -2651,6 +2651,43 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "add", "hl,hl");
                         vpush(VK_HL, NULL, 0, type);
                         break;
+                    } else if (mul_val == 8 && var_op) {
+                        /* *8 = add hl,hl x3 */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    } else if (mul_val == 16 && var_op) {
+                        /* *16 = add hl,hl x4 */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,hl");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    } else if (mul_val == 10 && var_op) {
+                        /* *10 = (*8 + *2): HL*2 → DE, HL*8 via 2 more shifts, add DE */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "add", "hl,hl"); /* *2 */
+                        emit_instr(cc, "ld", "d,h");
+                        emit_instr(cc, "ld", "e,l");    /* DE = HL*2 */
+                        emit_instr(cc, "add", "hl,hl"); /* *4 */
+                        emit_instr(cc, "add", "hl,hl"); /* *8 */
+                        emit_instr(cc, "add", "hl,de"); /* *8 + *2 = *10 */
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
+                    } else if (mul_val == 3 && var_op) {
+                        /* *3 = HL*2 + HL */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "ld", "d,h");
+                        emit_instr(cc, "ld", "e,l");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,de");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
                     }
 
                     /* General case: HL * DE → call ?mulhd (commutative) */
