@@ -2570,6 +2570,8 @@ static void gen_expr_stmt(Cc2State *cc)
                 }
                 if (b->kind == VK_HL) gen_load_de(cc, a);
                 else if (a->kind == VK_HL) gen_load_de(cc, b);
+                else if (a->kind == VK_DE) gen_load_hl(cc, b);
+                else if (b->kind == VK_DE) gen_load_hl(cc, a);
                 else { gen_load_de(cc, b); gen_load_hl(cc, a); }
                 emit_instr(cc, "ld", "a,l");
                 emit_instr(cc, "or", "e");
@@ -2661,11 +2663,15 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                /* XOR is commutative — keep existing HL value if possible */
+                /* XOR is commutative — avoid register swaps */
                 if (b->kind == VK_HL) {
                     gen_load_de(cc, a);
                 } else if (a->kind == VK_HL) {
                     gen_load_de(cc, b);
+                } else if (a->kind == VK_DE) {
+                    gen_load_hl(cc, b);
+                } else if (b->kind == VK_DE) {
+                    gen_load_hl(cc, a);
                 } else {
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
@@ -2685,11 +2691,15 @@ static void gen_expr_stmt(Cc2State *cc)
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
-                /* AND is commutative — keep existing HL value */
+                /* AND is commutative — avoid register swaps */
                 if (b->kind == VK_HL) {
                     gen_load_de(cc, a);
                 } else if (a->kind == VK_HL) {
                     gen_load_de(cc, b);
+                } else if (a->kind == VK_DE) {
+                    gen_load_hl(cc, b);
+                } else if (b->kind == VK_DE) {
+                    gen_load_hl(cc, a);
                 } else {
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
