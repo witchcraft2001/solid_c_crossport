@@ -2172,7 +2172,15 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     vpush(VK_A, NULL, 0, 'C');
                 } else {
-                    if (b->kind == VK_IMM) {
+                    if (b->kind == VK_IMM && b->value == 1) {
+                        /* +1: inc hl */
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, "inc", "hl");
+                    } else if (a->kind == VK_IMM && a->value == 1) {
+                        /* 1+b: inc hl */
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "inc", "hl");
+                    } else if (b->kind == VK_IMM) {
                         /* Constant: load to DE, first op in HL */
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
@@ -2212,6 +2220,11 @@ static void gen_expr_stmt(Cc2State *cc)
                     gen_load_a(cc, a);
                     emit_instr(cc, "sub", "e");
                     vpush(VK_A, NULL, 0, 'C');
+                } else if (b->kind == VK_IMM && b->value == 1) {
+                    /* -1: dec hl */
+                    gen_load_hl(cc, a);
+                    emit_instr(cc, "dec", "hl");
+                    vpush(VK_HL, NULL, 0, type);
                 } else {
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
@@ -3298,8 +3311,15 @@ static void gen_cond_jump(Cc2State *cc)
                         vpush(VK_IMM, NULL, r & 0xFFFF, type);
                         break;
                     }
+                    /* Special cases for ±1 */
+                    if (b->kind == VK_IMM && b->value == 1) {
+                        gen_load_hl(cc, a);
+                        emit_instr(cc, first == '+' ? "inc" : "dec", "hl");
+                    } else if (first == '+' && a->kind == VK_IMM && a->value == 1) {
+                        gen_load_hl(cc, b);
+                        emit_instr(cc, "inc", "hl");
                     /* Commutative optimization for + */
-                    if (first == '+' && b->kind == VK_HL) {
+                    } else if (first == '+' && b->kind == VK_HL) {
                         gen_load_de(cc, a);
                         emit_instr(cc, "add", "hl,de");
                     } else if (first == '+' && b->kind == VK_IMM) {
