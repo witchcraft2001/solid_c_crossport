@@ -473,6 +473,17 @@ static void peephole_optimize(void)
             }
         }
 
+        /* ld de,0 / add hl,de → remove both (adding 0 is no-op) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "ld\tde,0") == 0 &&
+            strcmp(b->text, "add\thl,de") == 0) {
+            for (j = i; j < instr_count - 2; j++)
+                instr_list[j] = instr_list[j + 2];
+            instr_count -= 2;
+            i--;
+            continue;
+        }
+
         /* 3-instruction patterns */
         if (i < instr_count - 2) {
             Instr *c = &instr_list[i + 2];
