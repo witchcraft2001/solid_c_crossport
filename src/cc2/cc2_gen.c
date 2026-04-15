@@ -390,6 +390,51 @@ static void peephole_optimize(void)
             }
         }
 
+        /* jp cc,@N / jp @M / @N: → jp !cc,@M (condition inversion)
+         * Also: jp cc,@N / jp @N → jp @N (both go same place) */
+        if (i + 2 < instr_count && a->type == INSTR_INST &&
+            b->type == INSTR_INST && instr_list[i+2].type == INSTR_LABEL) {
+            /* Check pattern: jp <cond>,@N / jp @M / @N: */
+            char cond[16], target1[32], target2[32];
+            if (sscanf(a->text, "jp\t%[^,],@%31s", cond, target1) == 2 &&
+                sscanf(b->text, "jp\t@%31s", target2) == 1) {
+                /* a = jp cond,@target1  b = jp @target2  c = @target1: */
+                char expected[32];
+                snprintf(expected, sizeof(expected), "@%s", target1);
+                if (strcmp(instr_list[i+2].text, expected) == 0) {
+                    /* Invert condition and remove extra jump */
+                    const char *inv = NULL;
+                    if (strcmp(cond, "z") == 0) inv = "nz";
+                    else if (strcmp(cond, "nz") == 0) inv = "z";
+                    else if (strcmp(cond, "c") == 0) inv = "nc";
+                    else if (strcmp(cond, "nc") == 0) inv = "c";
+                    if (inv) {
+                        snprintf(a->text, INSTR_BUF, "jp\t%s,@%s", inv, target2);
+                        /* Remove b (the unconditional jp) */
+                        for (j = i + 1; j < instr_count - 1; j++)
+                            instr_list[j] = instr_list[j + 1];
+                        instr_count--;
+                        i--;
+                        continue;
+                    }
+                }
+            }
+        }
+        /* jp cc,@N / jp @N → jp @N (redundant condition, both go same place) */
+        if (a->type == INSTR_INST && b->type == INSTR_INST) {
+            char cond[16], target1[32], target2[32];
+            if (sscanf(a->text, "jp\t%[^,],@%31s", cond, target1) == 2 &&
+                sscanf(b->text, "jp\t@%31s", target2) == 1 &&
+                strcmp(target1, target2) == 0) {
+                /* Remove the conditional jp (the unconditional one covers it) */
+                for (j = i; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+        }
+
         /* pop de / ex de,hl / add hl,de → pop de / add hl,de
          * (commutative: popped + HL = HL + popped, skip the swap) */
         if (i + 2 < instr_count && a->type == INSTR_INST &&
@@ -2064,7 +2109,12 @@ static void gen_expr_stmt(Cc2State *cc)
                         if (type == '+') {
                             if (delta->kind == VK_IMM && delta->value == 1)
                                 emit_instr(cc, "inc", "hl");
-                            else {
+                            else if (delta->kind == VK_IMM) {
+                                char buf[32];
+                                snprintf(buf, sizeof(buf), "de,%d", delta->value & 0xFFFF);
+                                emit_instr(cc, "ld", buf);
+                                emit_instr(cc, "add", "hl,de");
+                            } else {
                                 emit_instr(cc, "push", "hl");
                                 gen_load_hl(cc, delta);
                                 emit_instr(cc, "pop", "de");
@@ -2072,12 +2122,23 @@ static void gen_expr_stmt(Cc2State *cc)
                                 emit_instr(cc, "add", "hl,de");
                             }
                         } else {
-                            emit_instr(cc, "push", "hl");
-                            gen_load_hl(cc, delta);
-                            emit_instr(cc, "pop", "de");
-                            emit_instr(cc, "ex", "de,hl");
-                            emit_instr(cc, "or", "a");
-                            emit_instr(cc, "sbc", "hl,de");
+                            if (delta->kind == VK_IMM && delta->value == 1) {
+                                emit_instr(cc, "dec", "hl");
+                            } else if (delta->kind == VK_IMM) {
+                                /* Subtract constant: add two's complement */
+                                int neg = (-delta->value) & 0xFFFF;
+                                char buf[32];
+                                snprintf(buf, sizeof(buf), "de,%d", neg);
+                                emit_instr(cc, "ld", buf);
+                                emit_instr(cc, "add", "hl,de");
+                            } else {
+                                emit_instr(cc, "push", "hl");
+                                gen_load_hl(cc, delta);
+                                emit_instr(cc, "pop", "de");
+                                emit_instr(cc, "ex", "de,hl");
+                                emit_instr(cc, "or", "a");
+                                emit_instr(cc, "sbc", "hl,de");
+                            }
                         }
                         gen_store_hl(cc, var);
                         vpush(VK_HL, NULL, 0, ctype);
@@ -2268,6 +2329,16 @@ static void gen_expr_stmt(Cc2State *cc)
                     /* -1: dec hl */
                     gen_load_hl(cc, a);
                     emit_instr(cc, "dec", "hl");
+                    vpush(VK_HL, NULL, 0, type);
+                } else if (b->kind == VK_IMM) {
+                    /* Subtract constant: add two's complement
+                     * ld de,<-val> / add hl,de avoids or a / sbc */
+                    gen_load_hl(cc, a);
+                    int neg = (-b->value) & 0xFFFF;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "de,%d", neg);
+                    emit_instr(cc, "ld", buf);
+                    emit_instr(cc, "add", "hl,de");
                     vpush(VK_HL, NULL, 0, type);
                 } else {
                     gen_load_de(cc, b);
@@ -3393,6 +3464,14 @@ static void gen_cond_jump(Cc2State *cc)
                     } else if (first == '+' && b->kind == VK_IMM) {
                         gen_load_hl(cc, a);
                         gen_load_de(cc, b);
+                        emit_instr(cc, "add", "hl,de");
+                    } else if (first == '-' && b->kind == VK_IMM) {
+                        /* Subtract constant: add two's complement */
+                        gen_load_hl(cc, a);
+                        int neg = (-b->value) & 0xFFFF;
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "de,%d", neg);
+                        emit_instr(cc, "ld", buf);
                         emit_instr(cc, "add", "hl,de");
                     } else {
                         gen_load_de(cc, b);
