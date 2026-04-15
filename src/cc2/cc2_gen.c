@@ -2553,9 +2553,8 @@ static void gen_expr_stmt(Cc2State *cc)
                     decl_add("?dvnhd", 0);
                     emit_instr(cc, "call", "?dvnhd");
                 }
-                /* Remainder is in DE after division */
-                emit_instr(cc, "ex", "de,hl");
-                vpush(VK_HL, NULL, 0, type);
+                /* Remainder is in DE after division — keep it there */
+                vpush(VK_DE, NULL, 0, type);
             }
             break;
         }
