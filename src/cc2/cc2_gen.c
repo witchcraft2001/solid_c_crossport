@@ -368,6 +368,24 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* jp @N / @N: → remove jp (jump to next instruction) */
+        if (a->type == INSTR_INST && b->type == INSTR_LABEL) {
+            /* Check if jp targets the next label */
+            char expected[32];
+            snprintf(expected, sizeof(expected), "%s", b->text);
+            char jp_target[64];
+            snprintf(jp_target, sizeof(jp_target), "%s", a->text);
+            /* jp_target is like "@4" and expected is "@4" */
+            if (strcmp(jp_target, expected) == 0) {
+                /* Remove the jp */
+                for (j = i; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+        }
+
         /* pop de / ex de,hl / add hl,de → pop de / add hl,de
          * (commutative: popped + HL = HL + popped, skip the swap) */
         if (i + 2 < instr_count && a->type == INSTR_INST &&
@@ -4134,6 +4152,18 @@ static void parse_function(Cc2State *cc)
                 out_instruction(cc, "ld", buf);
                 out_instruction(cc, "add", "hl,sp");
                 out_instruction(cc, "ld", "sp,hl");
+            }
+        }
+    }
+
+    /* Remove trailing jp to epilogue (it falls through naturally) */
+    if (func_epilogue_label >= 0 && instr_count > 0) {
+        Instr *last = &instr_list[instr_count - 1];
+        if (last->type == INSTR_INST) {
+            char target[32];
+            snprintf(target, sizeof(target), "jp\t@%d", func_epilogue_label);
+            if (strcmp(last->text, target) == 0) {
+                instr_count--; /* remove the jp */
             }
         }
     }
