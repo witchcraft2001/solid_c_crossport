@@ -3101,8 +3101,17 @@ static void gen_cond_jump(Cc2State *cc)
                     gen_load_hl(cc, a);
                     emit_instr(cc, "or", "a");
                     emit_instr(cc, "sbc", "hl,de");
+                } else if (cmp_type == 'N' && (first == '<' || first == ']')) {
+                    /* Unsigned less-than: inline ld a,l/sub e/ld a,h/sbc a,d
+                     * Carry set if HL < DE */
+                    gen_load_de(cc, b);
+                    gen_load_hl(cc, a);
+                    emit_instr(cc, "ld", "a,l");
+                    emit_instr(cc, "sub", "e");
+                    emit_instr(cc, "ld", "a,h");
+                    emit_instr(cc, "sbc", "a,d");
                 } else {
-                    /* General comparison: use ?cpshd library call */
+                    /* Signed or complex comparison: use ?cpshd library call */
                     gen_load_de(cc, b);
                     gen_load_hl(cc, a);
                     decl_add("?cpshd", 0);
