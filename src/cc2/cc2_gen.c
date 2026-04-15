@@ -529,6 +529,21 @@ static void peephole_optimize(void)
                 continue;
             }
 
+            /* ex de,hl / call ?cpshd / jp z/nz →
+             * Remove ex (equality is symmetric, Z flag same either way) */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "ex\tde,hl") == 0 &&
+                strcmp(b->text, "call\t?cpshd") == 0 &&
+                (strncmp(c->text, "jp\tz,", 5) == 0 ||
+                 strncmp(c->text, "jp\tnz,", 6) == 0)) {
+                for (j = i; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+
             /* ld a,(hl) / ld l,a / ld h,0 → ld l,(hl) / ld h,0
              * (direct byte load without going through A) */
             if (a->type == INSTR_INST && b->type == INSTR_INST &&
