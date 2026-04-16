@@ -19,4 +19,6 @@ cmake-build-*/
 *.tmc
 *.err
 *.lst
-!reference/*.*
+!reference/*.rel
+!reference/*.tmc
+!reference/*.lst

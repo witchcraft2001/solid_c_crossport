@@ -59,6 +59,17 @@ Produces: `build/as`, `build/ol`, `build/cc2`
 
 ## Rules
 
+### Development Approach (CRITICAL)
+
+**Implement logic 1-to-1 from original source files — do NOT reverse-engineer from reference output.**
+
+This rule applies to the entire project (AS, OL, CC2, and any future components):
+
+- The source of truth is the original source code: `solid_c-src/ccc/CCC.ASM` for CC2, and equivalent originals for other components. Each function we write must be a port of a specific section of the original, with comments referencing original addresses/labels.
+- Reference output files (`reference/*.ASM`, `reference/*.REL`, etc.) are used ONLY for verification (diff), never as the basis for writing code.
+- Forbidden: looking at the diff between reference and our output and adding ad-hoc hacks to "force" a match. If output doesn't match — the original logic was ported incorrectly; re-read the original source and fix the port.
+- Correct workflow: (1) read the relevant section of the original source, (2) understand the algorithm, (3) write equivalent C code, (4) verify with diff — if it doesn't match, return to step 1.
+
 ### Reference Directory (CRITICAL)
 
 **NEVER modify files in `reference/`**. This directory contains the canonical output from the original Sprinter compiler tools. These files are the byte-identical reference for verifying our code generation.
@@ -81,6 +92,10 @@ diff /tmp/FOO_ref.ASM /tmp/FOO.ASM
 ```
 
 **NEVER** run `cc2` directly on `reference/*.TMC` — cc2 overwrites the `.ASM` file in the same directory as the input `.TMC`.
+
+### Git Commits
+
+- Do NOT add `Co-Authored-By` or any authorship lines to commit messages.
 
 ### Code Style
 
