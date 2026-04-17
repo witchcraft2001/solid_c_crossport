@@ -1685,11 +1685,15 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
             ExprVal *top = eval_top();
             if (top) top->is_addr = 1;
         } else if (ch == 'p') {
-            ch = tmc_read_char(cc);
+            int ptype = tmc_read_char(cc); /* R, I, N, C */
             ExprVal *top = eval_pop();
             if (top && nargs < MAX_ARGS) {
                 args[nargs] = *top;
                 args[nargs].needs_push = 1;
+                /* For value types (I, N, C), dereference global symbols */
+                if ((ptype == 'I' || ptype == 'N' || ptype == 'C')
+                    && args[nargs].sym[0] && !args[nargs].is_addr)
+                    args[nargs].is_deref = 1;
                 nargs++;
             }
         } else if (ch == 'c') {
@@ -1857,9 +1861,17 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
         for (i = nargs - 1; i >= 0; i--) {
             if (args[i].needs_push) {
                 char operand[128];
-                eval_format(&args[i], operand, sizeof(operand), 0);
-                emit_instr(cc, "ld", operand);
-                emit_instr(cc, "push", "bc");
+                /* Reference: strings/addresses → ld bc,?N / push bc
+                 *            dereferenced values → ld hl,(sym) / push hl */
+                if (args[i].is_string || !args[i].is_deref) {
+                    eval_format(&args[i], operand, sizeof(operand), 0);
+                    emit_instr(cc, "ld", operand);
+                    emit_instr(cc, "push", "bc");
+                } else {
+                    eval_format(&args[i], operand, sizeof(operand), 1);
+                    emit_instr(cc, "ld", operand);
+                    emit_instr(cc, "push", "hl");
+                }
                 pushes++;
             }
         }
@@ -1882,6 +1894,27 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
             } else {
                 eval_format(&args[0], operand, sizeof(operand), 1);
             }
+            emit_instr(cc, "ld", operand);
+            emit_instr(cc, "call", asmname);
+        } else if (arg_count == 2 && nargs >= 2) {
+            /* F2: args[1] → DE, args[0] → HL
+             * Reference: ld hl,(arg1); ex de,hl; ld hl,arg0; call */
+            char operand[128];
+            eval_format(&args[1], operand, sizeof(operand), 1);
+            emit_instr(cc, "ld", operand);
+            emit_instr(cc, "ex", "de,hl");
+            eval_format(&args[0], operand, sizeof(operand), 1);
+            emit_instr(cc, "ld", operand);
+            emit_instr(cc, "call", asmname);
+        } else if (arg_count == 3 && nargs >= 3) {
+            /* F3: args[2] → BC, args[1] → DE, args[0] → HL */
+            char operand[128];
+            eval_format(&args[2], operand, sizeof(operand), 0); /* bc */
+            emit_instr(cc, "ld", operand);
+            eval_format(&args[1], operand, sizeof(operand), 1);
+            emit_instr(cc, "ld", operand);
+            emit_instr(cc, "ex", "de,hl");
+            eval_format(&args[0], operand, sizeof(operand), 1);
             emit_instr(cc, "ld", operand);
             emit_instr(cc, "call", asmname);
         } else {
@@ -2054,10 +2087,13 @@ static void gen_load_de(Cc2State *cc, VVal *v)
     case VK_GLOBAL:
         if (v->is_addr) {
             snprintf(buf, sizeof(buf), "de,%s", v->sym);
+            emit_instr(cc, "ld", buf);
         } else {
-            snprintf(buf, sizeof(buf), "de,(%s)", v->sym);
+            /* Reference always uses ld hl,(sym); ex de,hl — not ld de,(sym) */
+            snprintf(buf, sizeof(buf), "hl,(%s)", v->sym);
+            emit_instr(cc, "ld", buf);
+            emit_instr(cc, "ex", "de,hl");
         }
-        emit_instr(cc, "ld", buf);
         break;
     case VK_LOCAL:
         snprintf(buf, sizeof(buf), "e,(ix%+d)", v->value);
@@ -2237,13 +2273,14 @@ static void gen_inline_call(Cc2State *cc, const char *asmname, int call_type, in
     /* Emit register saves for frameless functions.
      * hl_spilled/de_spilled: 1=needs saving, 2=already saved on stack.
      * Save before first call, restore on next param reference. */
-    if (hl_spilled == 1) {
-        emit_instr(cc, "push", "hl");
-        hl_spilled = 2;
-    }
+    /* Push DE first so HL ends up on top (HL is popped first) */
     if (de_spilled == 1) {
         emit_instr(cc, "push", "de");
         de_spilled = 2;
+    }
+    if (hl_spilled == 1) {
+        emit_instr(cc, "push", "hl");
+        hl_spilled = 2;
     }
     (void)regs_to_save_across_call;
     (void)emit_reg_saves;
@@ -3010,10 +3047,15 @@ static void gen_expr_stmt(Cc2State *cc)
                     emit_instr(cc, "add", "hl,de");
                     vpush(VK_HL, NULL, 0, type);
                 } else {
-                    gen_load_de(cc, b);
-                    gen_load_hl(cc, a);
-                    emit_instr(cc, "or", "a");
-                    emit_instr(cc, "sbc", "hl,de");
+                    /* a - b: DE=a, HL=b, then ld a,e/sub l/ld l,a/ld a,d/sbc a,h/ld h,a */
+                    gen_load_de(cc, a);
+                    gen_load_hl(cc, b);
+                    emit_instr(cc, "ld", "a,e");
+                    emit_instr(cc, "sub", "l");
+                    emit_instr(cc, "ld", "l,a");
+                    emit_instr(cc, "ld", "a,d");
+                    emit_instr(cc, "sbc", "a,h");
+                    emit_instr(cc, "ld", "h,a");
                     vpush(VK_HL, NULL, 0, type);
                 }
             }
@@ -3105,6 +3147,19 @@ static void gen_expr_stmt(Cc2State *cc)
                         break; /* skip the generic base-add code below */
                     } else if (b->kind == VK_IMM && b->value == 1) {
                         /* Element size 1: just use index as-is */
+                        /* Special case: index in DE or BC + global base → ld hl,sym; add hl,reg */
+                        if ((a->kind == VK_DE || a->kind == VK_BC) && rbase_kind == VK_GLOBAL) {
+                            char buf[128];
+                            const char *addreg = (a->kind == VK_DE) ? "de" : "bc";
+                            snprintf(buf, sizeof(buf), "hl,%s", rbase_sym);
+                            emit_instr(cc, "ld", buf);
+                            snprintf(buf, sizeof(buf), "hl,%s", addreg);
+                            emit_instr(cc, "add", buf);
+                            rbase_active = 0;
+                            vpush(VK_ADDR_HL, NULL, 0, 'R');
+                            (void)need_add_base;
+                            break;
+                        }
                         gen_load_hl(cc, a);
                     } else if (b->kind == VK_IMM && b->value == 2) {
                         /* Element size 2: add hl,hl (shift left 1) */
@@ -3143,10 +3198,11 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "add", "hl,de");
                         need_add_base = 0;
                     } else if (rbase_kind == VK_GLOBAL) {
+                        /* Reference uses ld bc,sym / add hl,bc to preserve DE loop counter */
                         char buf[128];
-                        snprintf(buf, sizeof(buf), "de,%s", rbase_sym);
+                        snprintf(buf, sizeof(buf), "bc,%s", rbase_sym);
                         emit_instr(cc, "ld", buf);
-                        emit_instr(cc, "add", "hl,de");
+                        emit_instr(cc, "add", "hl,bc");
                         need_add_base = 0;
                     } else if (rbase_kind == VK_BC) {
                         emit_instr(cc, "add", "hl,bc");
@@ -3268,12 +3324,12 @@ static void gen_expr_stmt(Cc2State *cc)
                         vpush(VK_HL, NULL, 0, type);
                         break;
                     } else if (mul_val == 3 && var_op) {
-                        /* *3 = HL*2 + HL */
+                        /* *3 = HL*2 + HL, uses BC (not DE) to avoid clobbering loop counter */
                         gen_load_hl(cc, var_op);
-                        emit_instr(cc, "ld", "d,h");
-                        emit_instr(cc, "ld", "e,l");
+                        emit_instr(cc, "ld", "c,l");
+                        emit_instr(cc, "ld", "b,h");
                         emit_instr(cc, "add", "hl,hl");
-                        emit_instr(cc, "add", "hl,de");
+                        emit_instr(cc, "add", "hl,bc");
                         vpush(VK_HL, NULL, 0, type);
                         break;
                     }
@@ -3858,6 +3914,10 @@ static void gen_cond_jump(Cc2State *cc)
     int negate = 0;
     int cmp_op = 0;
     char cmp_type = 'N';
+    /* AND-pattern tracking: when a second comparison is seen, save the split
+     * position so m can insert the first condition's jump retroactively */
+    int and_split_pos = -1;
+    int and_prev_cmp_op = 0;
 
     for (;;) {
         int first = expr_read_tok(cc, tok, sizeof(tok));
@@ -3921,19 +3981,28 @@ static void gen_cond_jump(Cc2State *cc)
         }
         case '<': case '>': case '=': case '!':
         case '[': case ']': {
+            /* Track AND split point: if a previous comparison is pending,
+             * record split so m can insert the first jump retroactively */
+            if (cmp_op != 0) {
+                and_prev_cmp_op = cmp_op;
+                and_split_pos = instr_count;
+            }
             cmp_op = first;
             cmp_type = tok[1];
             VVal *b = vpop();
             VVal *a = vpop();
             if (a && b) {
                 if (cmp_type == 'C' && b->kind == VK_IMM) {
-                    /* Char comparison with immediate: cp N or or a for 0 */
+                    /* Char comparison with immediate: cp N.
+                     * [C (<=): use cp N+1 so carry=1 iff A<=N, set cmp_op='<' */
                     gen_load_a(cc, a);
                     if ((b->value & 0xFF) == 0 && (first == '!' || first == '=')) {
                         emit_instr(cc, "or", "a");
                     } else {
                         char buf[32];
-                        snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
+                        int cval = b->value & 0xFF;
+                        if (first == '[') { cval = (cval + 1) & 0xFF; cmp_op = '<'; }
+                        snprintf(buf, sizeof(buf), "%d", cval);
                         emit_instr(cc, "cp", buf);
                     }
                 } else if (cmp_type == 'C') {
@@ -3941,18 +4010,31 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "ld", "e,a");
                     gen_load_a(cc, a);
                     emit_instr(cc, "cp", "e");
-                } else if (b->kind == VK_IMM && b->value >= 0 && b->value <= 255
+                } else if (cmp_type == 'N' && b->kind == VK_IMM && b->value >= 0
                            && (first == '<' || first == '[')) {
-                    /* Inline unsigned comparison: a < const or a <= const
-                     * ld a,e / sub <const> / ld a,d / sbc a,0 */
-                    gen_load_de(cc, a);
+                    /* Inline unsigned comparison for any 16-bit constant.
+                     * Only for unsigned (N) type — signed (I) uses call ?cpshd.
+                     * [N (<=c) treated as <N (c+1): adjust constant, set cmp_op to '<' */
+                    int cval = b->value;
+                    if (first == '[') { cval++; cmp_op = '<'; }
                     {
                         char buf[32];
-                        emit_instr(cc, "ld", "a,e");
-                        snprintf(buf, sizeof(buf), "%d", b->value & 0xFF);
-                        emit_instr(cc, "sub", buf);
-                        emit_instr(cc, "ld", "a,d");
-                        emit_instr(cc, "sbc", "a,0");
+                        int lo = cval & 0xFF;
+                        int hi = (cval >> 8) & 0xFF;
+                        gen_load_de(cc, a);
+                        if (lo == 0) {
+                            /* sub 0 just clears carry: skip it, use sub hi directly */
+                            emit_instr(cc, "ld", "a,d");
+                            snprintf(buf, sizeof(buf), "%d", hi);
+                            emit_instr(cc, "sub", buf);
+                        } else {
+                            emit_instr(cc, "ld", "a,e");
+                            snprintf(buf, sizeof(buf), "%d", lo);
+                            emit_instr(cc, "sub", buf);
+                            emit_instr(cc, "ld", "a,d");
+                            snprintf(buf, sizeof(buf), "a,%d", hi);
+                            emit_instr(cc, "sbc", buf);
+                        }
                     }
                 } else if (b->kind == VK_IMM && b->value == 0
                            && (first == '=' || first == '!')) {
@@ -3983,20 +4065,20 @@ static void gen_cond_jump(Cc2State *cc)
                     gen_load_hl(cc, a);
                     decl_add("?cpshd", 0);
                     emit_instr(cc, "call", "?cpshd");
-                } else if (cmp_type == 'N' && (first == '<' || first == ']') &&
-                           (a->kind == VK_HL || b->kind == VK_HL)) {
-                    /* Unsigned less-than with register operand: inline
-                     * ld a,l/sub e/ld a,h/sbc a,d — carry set if HL < DE */
-                    gen_load_de(cc, b);
-                    gen_load_hl(cc, a);
-                    emit_instr(cc, "ld", "a,l");
-                    emit_instr(cc, "sub", "e");
-                    emit_instr(cc, "ld", "a,h");
-                    emit_instr(cc, "sbc", "a,d");
+                } else if (cmp_type == 'N' && (first == '<' || first == ']')) {
+                    /* Unsigned less-than: DE=a, HL=b, then ld a,e/sub l/ld a,d/sbc a,h
+                     * carry set if a < b */
+                    gen_load_de(cc, a);
+                    gen_load_hl(cc, b);
+                    emit_instr(cc, "ld", "a,e");
+                    emit_instr(cc, "sub", "l");
+                    emit_instr(cc, "ld", "a,d");
+                    emit_instr(cc, "sbc", "a,h");
                 } else {
-                    /* Signed or complex comparison: use ?cpshd library call */
-                    gen_load_de(cc, b);
+                    /* Signed or complex comparison: use ?cpshd library call.
+                     * Load HL=a first so we don't clobber a if it's in DE. */
                     gen_load_hl(cc, a);
+                    gen_load_de(cc, b);
                     decl_add("?cpshd", 0);
                     emit_instr(cc, "call", "?cpshd");
                 }
@@ -4191,10 +4273,21 @@ static void gen_cond_jump(Cc2State *cc)
                         emit_instr(cc, "ld", buf);
                         emit_instr(cc, "add", "hl,de");
                     } else {
-                        gen_load_de(cc, b);
-                        gen_load_hl(cc, a);
-                        if (first == '+') emit_instr(cc, "add", "hl,de");
-                        else { emit_instr(cc, "or", "a"); emit_instr(cc, "sbc", "hl,de"); }
+                        if (first == '+') {
+                            gen_load_de(cc, b);
+                            gen_load_hl(cc, a);
+                            emit_instr(cc, "add", "hl,de");
+                        } else {
+                            /* a - b: DE=a, HL=b */
+                            gen_load_de(cc, a);
+                            gen_load_hl(cc, b);
+                            emit_instr(cc, "ld", "a,e");
+                            emit_instr(cc, "sub", "l");
+                            emit_instr(cc, "ld", "l,a");
+                            emit_instr(cc, "ld", "a,d");
+                            emit_instr(cc, "sbc", "a,h");
+                            emit_instr(cc, "ld", "h,a");
+                        }
                     }
                     vpush(VK_HL, NULL, 0, type);
                 }
@@ -4262,6 +4355,7 @@ static void gen_cond_jump(Cc2State *cc)
                 case '=': snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
                 case '!': snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", skip); break;
                 case '<': snprintf(jbuf2, sizeof(jbuf2), "c,@%d", skip); break;
+                case ']': snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", skip); break;
                 default:  snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
                 }
                 emit_instr(cc, "jp", jbuf2);
@@ -4273,31 +4367,135 @@ static void gen_cond_jump(Cc2State *cc)
             break;
         }
         case 'm': {
-            /* Logical AND in jump condition (short-circuit).
-             * Emit conditional jump for current comparison, then
-             * evaluate next condition. With 'n' (negate), the AND
-             * becomes: if !cond1, jump to exit; if !cond2, jump to exit.
-             * So for each sub-condition, emit jp to target on failure. */
-            if (cmp_op) {
+            /* Logical AND: NOT(cond1 AND cond2) = jump if cond1 fails OR cond2 fails.
+             * If we have an and_split_pos (two comparisons were evaluated), insert
+             * the first jump retroactively before cond2's instructions, then let
+             * the final branch handle cond2.
+             * Otherwise (single condition before m), emit the current jump. */
+            if (and_split_pos >= 0 && and_prev_cmp_op != 0) {
+                /* Two-condition AND: insert jp for cond1 at split point */
                 char jbuf2[64];
-                /* For AND with negate: each condition failure → jump to target.
-                 * The negation of (A AND B) = (!A OR !B) = jump if any fails. */
+                switch (and_prev_cmp_op) {
+                case '=':  snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label); break;
+                case '!':  snprintf(jbuf2, sizeof(jbuf2), "z,@%d", target_label); break;
+                case '<':  snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", target_label); break;
+                case ']':  snprintf(jbuf2, sizeof(jbuf2), "c,@%d", target_label); break;
+                default:   snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label); break;
+                }
+                /* Insert instruction at and_split_pos by shifting subsequent instrs */
+                if (and_split_pos < instr_count && instr_count < MAX_INSTR) {
+                    int k;
+                    instr_count++;
+                    for (k = instr_count - 1; k > and_split_pos; k--)
+                        instr_list[k] = instr_list[k - 1];
+                    instr_list[and_split_pos].type = INSTR_INST;
+                    snprintf(instr_list[and_split_pos].text, INSTR_BUF, "jp\t%s", jbuf2);
+                }
+                and_split_pos = -1;
+                and_prev_cmp_op = 0;
+                /* cmp_op (cond2) stays for final branch */
+            } else if (cmp_op) {
+                /* Single comparison before m: emit its jump now */
+                char jbuf2[64];
                 switch (cmp_op) {
-                case '=':
-                    snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label);
-                    break;
-                case '!':
-                    snprintf(jbuf2, sizeof(jbuf2), "z,@%d", target_label);
-                    break;
-                case '<':
-                    snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", target_label);
-                    break;
-                default:
-                    snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label);
-                    break;
+                case '=':  snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label); break;
+                case '!':  snprintf(jbuf2, sizeof(jbuf2), "z,@%d", target_label); break;
+                case '<':  snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", target_label); break;
+                case ']':  snprintf(jbuf2, sizeof(jbuf2), "c,@%d", target_label); break;
+                default:   snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", target_label); break;
                 }
                 emit_instr(cc, "jp", jbuf2);
-                cmp_op = 0; /* reset for next condition */
+                cmp_op = 0;
+            }
+            break;
+        }
+        case 'X': {
+            /* Function call within condition expression.
+             * Set up icall machinery (same as gen_expr_stmt case 'X') */
+            strncpy(icall_name, tok + 1, sizeof(icall_name) - 1);
+            icall_name[sizeof(icall_name) - 1] = '\0';
+            icall_active = 1;
+            icall_nargs = 0;
+            icall_ret_type = 'C'; /* default, overridden by 'c' token */
+            break;
+        }
+        case 'a': {
+            VVal *top = vtop();
+            if (top) top->is_addr = 1;
+            break;
+        }
+        case 'p': {
+            /* Push arg for pending function call */
+            if (icall_active) {
+                VVal *val = vpop();
+                if (val && icall_nargs < ICALL_MAX_ARGS) {
+                    icall_args[icall_nargs] = *val;
+                    icall_arg_types[icall_nargs] = tok[1];
+                    icall_nargs++;
+                }
+            }
+            break;
+        }
+        case 'c': {
+            /* Call convention type: 'c' followed by type char */
+            if (icall_active) icall_ret_type = tok[1];
+            break;
+        }
+        case 'F': {
+            /* Function call dispatch: F0, F1, F2, F3 */
+            if (icall_active) {
+                int arg_count = atoi(tok + 1);
+                char asmname[128];
+                make_asm_name(icall_name, asmname, sizeof(asmname));
+                gen_inline_call(cc, asmname, 'F', arg_count);
+                icall_active = 0;
+                /* Result in HL (or A for char) */
+                if (icall_ret_type == 'C')
+                    vpush(VK_A, NULL, 0, 'C');
+                else
+                    vpush(VK_HL, NULL, 0, icall_ret_type);
+            }
+            break;
+        }
+        case 'U': {
+            /* Function call via push stack: U1, U2, ... */
+            if (icall_active) {
+                int arg_count = atoi(tok + 1);
+                char asmname[128];
+                make_asm_name(icall_name, asmname, sizeof(asmname));
+                gen_inline_call(cc, asmname, 'U', arg_count);
+                icall_active = 0;
+                vpush(VK_HL, NULL, 0, icall_ret_type);
+            }
+            break;
+        }
+        case ':': {
+            /* Assignment in condition: :C, :N, :I, :R
+             * Stores top-of-stack value to second-from-top destination */
+            char atype = tok[1];
+            VVal *val = vpop();
+            VVal *dest = vpop();
+            if (val && dest) {
+                if (dest->kind == VK_GLOBAL) {
+                    /* Store to global */
+                    if (atype == 'C') {
+                        /* char: use A register path */
+                        gen_load_a(cc, val);
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "(%s),a", dest->sym);
+                        emit_instr(cc, "ld", buf);
+                        vpush(VK_A, NULL, 0, 'C');
+                    } else {
+                        gen_load_hl(cc, val);
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "(%s),hl", dest->sym);
+                        emit_instr(cc, "ld", buf);
+                        vpush(VK_HL, NULL, 0, atype);
+                    }
+                } else {
+                    /* Other destination: push result back */
+                    vstack[vsp++] = *val;
+                }
             }
             break;
         }
@@ -4356,6 +4554,10 @@ static void gen_cond_jump(Cc2State *cc)
         switch (cmp_op) {
         case '<':
             snprintf(jbuf, sizeof(jbuf), "c,@%d", target_label);
+            break;
+        case ']':
+            /* >= (unsigned): carry clear means A >= B → jp nc */
+            snprintf(jbuf, sizeof(jbuf), "nc,@%d", target_label);
             break;
         case '=':
             snprintf(jbuf, sizeof(jbuf), "z,@%d", target_label);
@@ -5177,6 +5379,79 @@ static void parse_function(Cc2State *cc)
         }
     }
 
+    /* Run peephole optimizer now (before ret-cc pass) so that patterns like
+     * jp cc,@N / jp @M / @N: → jp !cc,@M are already resolved, making
+     * the ret-cc pass more effective. */
+    peephole_optimize();
+
+    /* ret-cc peephole: for frameless functions, if the instruction list ends
+     * with one or more @N: labels (the implicit ret will be emitted by
+     * !func_has_return afterward), and no unconditional jp @N exists,
+     * replace all "jp cc,@N" → "ret cc" and drop the trailing labels.
+     * When the instruction before the tail label is an unconditional jp,
+     * the function has no fallthrough path, so the implicit ret is suppressed.
+     * Mirrors the optimization in CCC.ASM where frameless functions use ret cc
+     * for early conditional returns instead of jumping to a shared epilogue. */
+    if (!(func_has_locals && func_frame_bytes > 0) && !func_has_return) {
+        /* Find the first trailing label at the end of instr_list */
+        int tail_start = instr_count;
+        while (tail_start > 0 &&
+               instr_list[tail_start - 1].type == INSTR_LABEL)
+            tail_start--;
+
+        if (tail_start < instr_count) {
+            int i, j;
+            /* Try each trailing label */
+            for (j = tail_start; j < instr_count; j++) {
+                int tail_lnum = -1;
+                if (sscanf(instr_list[j].text, "@%d", &tail_lnum) != 1)
+                    continue;
+
+                /* Check: no unconditional jp @N exists */
+                char uncond[32];
+                snprintf(uncond, sizeof(uncond), "jp\t@%d", tail_lnum);
+                int has_uncond = 0;
+                for (i = 0; i < tail_start; i++) {
+                    if (instr_list[i].type == INSTR_INST &&
+                        strcmp(instr_list[i].text, uncond) == 0) {
+                        has_uncond = 1;
+                        break;
+                    }
+                }
+                if (has_uncond) continue;
+
+                /* Replace all jp cc,@N with ret cc */
+                char cond_jp[48], cond_str[16];
+                int replaced = 0;
+                for (i = 0; i < tail_start; i++) {
+                    if (instr_list[i].type != INSTR_INST) continue;
+                    if (sscanf(instr_list[i].text, "jp\t%15[^,],@%*d", cond_str) != 1)
+                        continue;
+                    snprintf(cond_jp, sizeof(cond_jp), "jp\t%s,@%d", cond_str, tail_lnum);
+                    if (strcmp(instr_list[i].text, cond_jp) == 0) {
+                        snprintf(instr_list[i].text, INSTR_BUF, "ret\t%s", cond_str);
+                        replaced++;
+                    }
+                }
+                if (replaced > 0) {
+                    /* Remove this label from the tail (and all after it) */
+                    instr_count = j; /* truncate at this label */
+                    /* If the last remaining instruction is an unconditional jp,
+                     * the function has no fallthrough — suppress the implicit ret */
+                    if (instr_count > 0 &&
+                        instr_list[instr_count - 1].type == INSTR_INST) {
+                        char tmp[32];
+                        if (sscanf(instr_list[instr_count-1].text,
+                                   "jp\t@%31s", tmp) == 1) {
+                            func_has_return = 1; /* suppress trailing ret */
+                        }
+                    }
+                    break; /* only optimize one label per pass */
+                }
+            }
+        }
+    }
+
     /* Emit generated instructions */
     flush_instructions(cc);
 
@@ -5199,9 +5474,10 @@ static void parse_function(Cc2State *cc)
         out_instruction(cc, "ret", "");
     }
 
-    /* Emit function footer */
+    /* Emit function footer: original T7453 = 0Ah,";}",0Ah (trailing newline
+     * creates blank line before next function/dseg, as A7441 in CCC.ASM) */
     out_comment(cc, "}");
-
+    io_write_newline(cc);
 
     (void)ret_type;
 }
@@ -5251,7 +5527,6 @@ void gen_process_file(Cc2State *cc)
     }
 
     /* Output declarations */
-    io_write_newline(cc);
     io_write_newline(cc);
 
     {
