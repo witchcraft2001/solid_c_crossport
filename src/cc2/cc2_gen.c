@@ -446,6 +446,186 @@ static void emit_comment_instr(const char *text)
     snprintf(ins->text, INSTR_BUF, "%s", text);
 }
 
+/* ================================================================
+ *  ASM template engine — ported 1-to-1 from A6225 in CCC.ASM
+ *
+ *  Processes template strings character-by-character. Each character
+ *  is either a literal to emit, a mnemonic keyword ('A'=add, 'Z'=ld,
+ *  'N'=newline+tab), or an operand directive that consumes one value
+ *  from the operands[] array:
+ *    'R'  — 8-bit register letter ("bcdehlma"[v&7]) or "(hl)" if 'm'
+ *    'P'  — 16-bit register pair from "bcdehlsp"
+ *    'D'  — unsigned 16-bit decimal number
+ *    'L'  — low byte decimal (0..255)
+ *    'H'  — high byte decimal (0..255)
+ *    'C'  — single character
+ *    'X'  — "inc hl" (conditional in ref; unconditional here)
+ *    'Y'  — "dec hl" (conditional in ref; unconditional here)
+ *  In the original, each directive advances IX by 2 over a stack-of-
+ *  operands area. We use a plain array indexed by consumption count.
+ *
+ *  The template is appended to instr_list one INSTR_INST per "\n\t"
+ *  boundary (matching how our emit_instr emits tab-prefixed lines).
+ *
+ *  Not yet ported: 'S' (string ref), 'M' (variable name) — these
+ *  require the code-tree node structure from A19FB. They are not
+ *  used by the numeric/register templates we need first.
+ * ================================================================ */
+
+/* T6467: 8-bit register name list. 'm' means "(hl)" (memory). */
+static const char A6225_R8_NAMES[]  = "bcdehlma";
+/* T6470: 16-bit register-pair name list (pairs of 2 chars). */
+static const char A6225_R16_NAMES[] = "bcdehlsp";
+
+/* Emit a literal instruction to instr_list. The text may contain
+ * tabs but must not contain newlines — callers split on 'N'/'Z'/'A'. */
+static void tmpl_emit_line(const char *text)
+{
+    if (instr_count >= MAX_INSTR) return;
+    if (!text[0]) return;
+    Instr *ins = &instr_list[instr_count++];
+    ins->type = INSTR_INST;
+    snprintf(ins->text, INSTR_BUF, "%s", text);
+}
+
+/* Mirrors A6225 main dispatch loop.
+ * tmpl: template string (0-terminated, uses directive chars above).
+ * operands: array of 16-bit operand values; consumed left-to-right.
+ * The template may emit multiple instructions separated by N/Z/A markers.
+ *
+ * Implementation detail: we accumulate characters into a buffer, and
+ * each N/Z/A marker flushes the previous buffer as a new instruction
+ * and starts a new buffer for the next one. */
+static void emit_template(const char *tmpl, const int *operands, int nops)
+{
+    char buf[INSTR_BUF];
+    int  blen = 0;
+    int  opi = 0;
+
+    (void)nops;
+
+#define TMPL_FLUSH() do { \
+        buf[blen] = '\0'; \
+        if (blen > 0) tmpl_emit_line(buf); \
+        blen = 0; \
+    } while (0)
+
+#define TMPL_PUT(c) do { \
+        if (blen < INSTR_BUF - 1) buf[blen++] = (char)(c); \
+    } while (0)
+
+#define TMPL_PUTS(s) do { \
+        const char *_p = (s); \
+        while (*_p && blen < INSTR_BUF - 1) buf[blen++] = *_p++; \
+    } while (0)
+
+    while (*tmpl) {
+        unsigned char ch = (unsigned char)*tmpl++;
+        switch (ch) {
+        case 'N':  /* A6336: newline + tab → start new instruction */
+            TMPL_FLUSH();
+            break;
+        case 'Z':  /* A6344: "\n\tld\t" */
+            TMPL_FLUSH();
+            TMPL_PUTS("ld\t");
+            break;
+        case 'A':  /* A6352: "\n\tadd\t" */
+            TMPL_FLUSH();
+            TMPL_PUTS("add\t");
+            break;
+        case 'X':  /* A6360 X-branch: "\n\tinc\thl" */
+            TMPL_FLUSH();
+            TMPL_PUTS("inc\thl");
+            if (opi < nops) opi++;  /* ref advances IX even on X/Y */
+            break;
+        case 'Y':  /* A6360 Y-branch: "\n\tdec\thl" */
+            TMPL_FLUSH();
+            TMPL_PUTS("dec\thl");
+            if (opi < nops) opi++;
+            break;
+        case 'R': { /* A627D: 8-bit register letter */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            char r = A6225_R8_NAMES[v & 7];
+            if (r == 'm') TMPL_PUTS("(hl)");
+            else TMPL_PUT(r);
+            break;
+        }
+        case 'P': { /* A62A4: 16-bit register pair */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            int idx = v & 6;
+            TMPL_PUT(A6225_R16_NAMES[idx]);
+            TMPL_PUT(A6225_R16_NAMES[idx + 1]);
+            break;
+        }
+        case 'D': { /* A62C0: full 16-bit decimal */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            char num[16];
+            snprintf(num, sizeof(num), "%u", (unsigned)(v & 0xFFFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'L': { /* A62CE: low-byte decimal */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            char num[8];
+            snprintf(num, sizeof(num), "%u", (unsigned)(v & 0xFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'H': { /* A62DB: high-byte decimal */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            char num[8];
+            snprintf(num, sizeof(num), "%u", (unsigned)((v >> 8) & 0xFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'C': { /* A632B: single char */
+            int v = (opi < nops) ? operands[opi++] : 0;
+            TMPL_PUT(v & 0xFF);
+            break;
+        }
+        default:  /* A63A8: literal char */
+            TMPL_PUT(ch);
+            break;
+        }
+    }
+    TMPL_FLUSH();
+
+#undef TMPL_FLUSH
+#undef TMPL_PUT
+#undef TMPL_PUTS
+}
+
+/* Convenience wrappers: ported templates from CCC.ASM T63BD..T645C.
+ * Each corresponds to a named template used by the ref compiler. */
+/* T6403: "ZR,R" — ld <r8>,<r8> */
+static const char A6225_T_LD_R_R[]       = "ZR,R";
+/* T6408: "Ninc\ta" — inc a */
+static const char A6225_T_INC_A[]        = "Ninc\ta";
+/* T640F: "Ndec\ta" — dec a */
+static const char A6225_T_DEC_A[]        = "Ndec\ta";
+/* T6416: "Ninc\tR" — inc <r8> */
+static const char A6225_T_INC_R[]        = "Ninc\tR";
+/* T641D: "Ndec\tR" — dec <r8> */
+static const char A6225_T_DEC_R[]        = "Ndec\tR";
+/* T6424: "Za,R" — ld a,<r8> */
+static const char A6225_T_LD_A_R[]       = "Za,R";
+/* T6429: "ZR,a" — ld <r8>,a */
+static const char A6225_T_LD_R_A[]       = "ZR,a";
+/* T642E: "Nand\tL" — and <lo-byte> */
+static const char A6225_T_AND_L[]        = "Nand\tL";
+/* T6435: "Aa,L" — add a,<lo-byte> */
+static const char A6225_T_ADD_A_L[]      = "Aa,L";
+/* T643A: "Nsub\tL" — sub <lo-byte> */
+static const char A6225_T_SUB_L[]        = "Nsub\tL";
+/* T6441: "Aa,a" — add a,a */
+static const char A6225_T_ADD_A_A[]      = "Aa,a";
+/* T6446: "Ahl,hl" — add hl,hl */
+static const char A6225_T_ADD_HL_HL[]    = "Ahl,hl";
+/* T6456: "Nrrca" — rrca */
+static const char A6225_T_RRCA[]         = "Nrrca";
+/* T645C: "Nxor\ta" — xor a */
+static const char A6225_T_XOR_A[]        = "Nxor\ta";
+
 /* Peephole optimizer: remove redundant instruction sequences */
 static void peephole_optimize(void)
 {
@@ -2109,7 +2289,8 @@ static void gen_load_a(Cc2State *cc, VVal *v)
     switch (v->kind) {
     case VK_IMM:
         if ((v->value & 0xFF) == 0) {
-            emit_instr(cc, "xor", "a");
+            /* T645C: "Nxor\ta" — port via emit_template */
+            emit_template(A6225_T_XOR_A, NULL, 0);
         } else {
             snprintf(buf, sizeof(buf), "a,%d", v->value & 0xFF);
             emit_instr(cc, "ld", buf);
@@ -4129,11 +4310,35 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "inc", "a");
                 } else if ((first == '!' || first == '=') &&
                            (cmp_type == 'N' || cmp_type == 'I')) {
-                    /* Equality/inequality: use ?cpshd (matches ref for most programs) */
-                    gen_load_de(cc, b);
-                    gen_load_hl(cc, a);
-                    decl_add("?cpshd", 0);
-                    emit_instr(cc, "call", "?cpshd");
+                    /* Inline 16-bit equality — port of L8F40 in CCC.ASM.
+                     * Template: Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR
+                     * When a is VK_BC and b is loaded into HL, we emit:
+                     *   ld a,c / cp l / jr nz,$+4 / ld a,b / cp h
+                     * Otherwise fall back to HL/DE and cpshd (until the
+                     * full A67DB binary-template dispatcher is ported). */
+                    int a_is_bc = (a->kind == VK_BC);
+                    int b_is_bc = (b->kind == VK_BC);
+                    if (a_is_bc && !b_is_bc) {
+                        /* a stays in BC; load b into HL */
+                        gen_load_hl(cc, b);
+                        /* ops: a_lo=c(1), b_lo=l(5), a_hi=b(0), b_hi=h(4) */
+                        int ops[4] = { 1, 5, 0, 4 };
+                        emit_template("Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR",
+                                      ops, 4);
+                    } else if (b_is_bc && !a_is_bc) {
+                        /* b stays in BC; load a into HL */
+                        gen_load_hl(cc, a);
+                        /* ops: a_lo=l, b_lo=c, a_hi=h, b_hi=b */
+                        int ops[4] = { 5, 1, 4, 0 };
+                        emit_template("Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR",
+                                      ops, 4);
+                    } else {
+                        /* Default: HL vs DE via ?cpshd library call */
+                        gen_load_de(cc, b);
+                        gen_load_hl(cc, a);
+                        decl_add("?cpshd", 0);
+                        emit_instr(cc, "call", "?cpshd");
+                    }
                 } else if (cmp_type == 'N' && (first == '<' || first == ']')) {
                     /* Unsigned less-than: DE=a, HL=b, then ld a,e/sub l/ld a,d/sbc a,h
                      * carry set if a < b */
