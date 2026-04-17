@@ -4344,14 +4344,18 @@ static void gen_cond_jump(Cc2State *cc)
                         emit_instr(cc, "call", "?cpshd");
                     }
                 } else if (cmp_type == 'N' && (first == '<' || first == ']')) {
-                    /* Unsigned less-than: DE=a, HL=b, then ld a,e/sub l/ld a,d/sbc a,h
-                     * carry set if a < b */
+                    /* Inline 16-bit unsigned less-than — port of L8FB9:
+                     *   ld a,<a_lo>   (= e)
+                     *   sub <b_lo>    (= l)
+                     *   ld a,<a_hi>   (= d)
+                     *   sbc a,<b_hi>  (= h)
+                     * Carry set iff a < b. Template:
+                     *   "Za,RNsub\tRNZa,RNsbc\ta,R"
+                     * Operands = [a_lo=e(3), b_lo=l(5), a_hi=d(2), b_hi=h(4)] */
                     gen_load_de(cc, a);
                     gen_load_hl(cc, b);
-                    emit_instr(cc, "ld", "a,e");
-                    emit_instr(cc, "sub", "l");
-                    emit_instr(cc, "ld", "a,d");
-                    emit_instr(cc, "sbc", "a,h");
+                    int ops[4] = { 3, 5, 2, 4 };
+                    emit_template("Za,RNsub\tRNZa,RNsbc\ta,R", ops, 4);
                 } else {
                     /* Signed or complex comparison: use ?cpshd library call.
                      * Reference pattern for globals: ld hl,(b); ex de,hl; ld hl,(a); call
