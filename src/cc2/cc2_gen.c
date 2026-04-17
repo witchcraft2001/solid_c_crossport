@@ -4311,29 +4311,33 @@ static void gen_cond_jump(Cc2State *cc)
                 } else if ((first == '!' || first == '=') &&
                            (cmp_type == 'N' || cmp_type == 'I')) {
                     /* Inline 16-bit equality — port of L8F40 in CCC.ASM.
-                     * Template: Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR
-                     * When a is VK_BC and b is loaded into HL, we emit:
-                     *   ld a,c / cp l / jr nz,$+4 / ld a,b / cp h
-                     * Otherwise fall back to HL/DE and cpshd (until the
-                     * full A67DB binary-template dispatcher is ported). */
-                    int a_is_bc = (a->kind == VK_BC);
-                    int b_is_bc = (b->kind == VK_BC);
-                    if (a_is_bc && !b_is_bc) {
-                        /* a stays in BC; load b into HL */
+                     * Template: "Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR"
+                     * operands = [a_lo, b_lo, a_hi, b_hi] as "bcdehlma" indices.
+                     * When one operand is already in BC or DE register, we
+                     * emit inline instead of calling ?cpshd. The other side
+                     * is loaded into HL. This matches the reference pattern
+                     * in HOBCRC/BENCH for register-register equality checks.
+                     *
+                     * "bcdehlma" indices: b=0 c=1 d=2 e=3 h=4 l=5 a=7 */
+                    int a_kind = a->kind, b_kind = b->kind;
+                    int use_inline = 0;
+                    int a_lo = 0, a_hi = 0, b_lo = 0, b_hi = 0;
+                    if (a_kind == VK_BC && b_kind != VK_BC) {
                         gen_load_hl(cc, b);
-                        /* ops: a_lo=c(1), b_lo=l(5), a_hi=b(0), b_hi=h(4) */
-                        int ops[4] = { 1, 5, 0, 4 };
-                        emit_template("Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR",
-                                      ops, 4);
-                    } else if (b_is_bc && !a_is_bc) {
-                        /* b stays in BC; load a into HL */
+                        a_lo = 1; a_hi = 0; b_lo = 5; b_hi = 4;
+                        use_inline = 1;
+                    } else if (b_kind == VK_BC && a_kind != VK_BC) {
                         gen_load_hl(cc, a);
-                        /* ops: a_lo=l, b_lo=c, a_hi=h, b_hi=b */
-                        int ops[4] = { 5, 1, 4, 0 };
+                        a_lo = 5; a_hi = 4; b_lo = 1; b_hi = 0;
+                        use_inline = 1;
+                    }
+                    /* VK_DE case removed: reference uses ?cpshd for DE vs HL */
+                    if (use_inline) {
+                        int ops[4] = { a_lo, b_lo, a_hi, b_hi };
                         emit_template("Za,RNcp\tRNjr\tnz,$+4Za,RNcp\tR",
                                       ops, 4);
                     } else {
-                        /* Default: HL vs DE via ?cpshd library call */
+                        /* Both operands need HL/DE via memory: use ?cpshd */
                         gen_load_de(cc, b);
                         gen_load_hl(cc, a);
                         decl_add("?cpshd", 0);
