@@ -689,10 +689,49 @@ static void peephole_optimize(void)
     }
 }
 
+/* Emit any labels that are referenced by a jp but never defined.
+ * Prevents assembler errors when codegen allocates a label and then
+ * drops its definition (e.g. missing L<n> TMC line handling). */
+static void emit_dangling_labels(void)
+{
+    int i, j;
+    int seen[MAX_LABELS];
+    int refd[MAX_LABELS];
+    int k;
+    for (k = 0; k < MAX_LABELS; k++) { seen[k] = 0; refd[k] = 0; }
+
+    for (i = 0; i < instr_count; i++) {
+        Instr *ins = &instr_list[i];
+        if (ins->type == INSTR_LABEL) {
+            int n = -1;
+            if (sscanf(ins->text, "@%d", &n) == 1 && n >= 0 && n < MAX_LABELS)
+                seen[n] = 1;
+        } else if (ins->type == INSTR_INST) {
+            const char *p = ins->text;
+            while ((p = strchr(p, '@')) != NULL) {
+                p++;
+                if (*p >= '0' && *p <= '9') {
+                    int n = 0;
+                    while (*p >= '0' && *p <= '9') { n = n*10 + (*p - '0'); p++; }
+                    if (n >= 0 && n < MAX_LABELS) refd[n] = 1;
+                }
+            }
+        }
+    }
+    for (j = 0; j < MAX_LABELS; j++) {
+        if (refd[j] && !seen[j] && instr_count < MAX_INSTR) {
+            Instr *ins = &instr_list[instr_count++];
+            ins->type = INSTR_LABEL;
+            snprintf(ins->text, INSTR_BUF, "@%d", j);
+        }
+    }
+}
+
 static void flush_instructions(Cc2State *cc)
 {
     int i;
     peephole_optimize();
+    emit_dangling_labels();
     for (i = 0; i < instr_count; i++) {
         Instr *ins = &instr_list[i];
         switch (ins->type) {
@@ -4455,6 +4494,7 @@ static void gen_cond_jump(Cc2State *cc)
                 int arg_count = atoi(tok + 1);
                 char asmname[128];
                 make_asm_name(icall_name, asmname, sizeof(asmname));
+                decl_add(asmname, 0);
                 gen_inline_call(cc, asmname, 'F', arg_count);
                 icall_active = 0;
                 /* Result in HL (or A for char) */
@@ -4471,6 +4511,7 @@ static void gen_cond_jump(Cc2State *cc)
                 int arg_count = atoi(tok + 1);
                 char asmname[128];
                 make_asm_name(icall_name, asmname, sizeof(asmname));
+                decl_add(asmname, 0);
                 gen_inline_call(cc, asmname, 'U', arg_count);
                 icall_active = 0;
                 vpush(VK_HL, NULL, 0, icall_ret_type);
