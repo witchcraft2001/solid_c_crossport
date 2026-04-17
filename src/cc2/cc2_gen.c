@@ -5,6 +5,35 @@
  * code generation, and ASM output.
  *
  * Processes TMC intermediate code and generates Z80 assembly.
+ *
+ * Original architecture (CCC.ASM, for future porting reference):
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * A19FB  — expression evaluator: TMC → tree of 21-byte nodes
+ * A3A5B  — optimizer phase 1: variable counting, basic block analysis
+ * A6131  — optimizer phase 2: register allocation, code emission
+ * A6225  — ASM template engine (char-code dispatch from 'A','R','P',...)
+ * T8BF0  — operation-code dispatch table → template pointer
+ * L8F40  — inline 16-bit equality template: ld a,<lo>/cp <lo>/jr nz,$+4/
+ *                                            ld a,<hi>/cp <hi>
+ * L8FD7  — cpshd template: <?cpshd> (library call)
+ * L8FB9  — 16-bit subtract via A: ld a,<lo>/sub <lo>/ld a,<hi>/sbc a,<hi>
+ * L926D  — function prologue: push ix / ld ix,0 / add ix,sp
+ * L9288  — function epilogue: ld sp,ix / pop ix
+ * cpshd  — at 19190: signed 16-bit compare (sets Z and C flags)
+ *
+ * The ref compiler builds a code tree from TMC expressions, runs two
+ * optimizer passes, then emits ASM via template dispatch (T8BF0). Each
+ * TMC op-code indexes into T8BF0 to pick a template (L****). Templates
+ * are byte arrays: 0x94 = \n\t (new asm line), 0x80-0x8F = operand
+ * placeholders (register/immediate byte slots), 0xFF = end.
+ *
+ * Our cc2 bypasses the template engine and emits instructions directly
+ * via emit_instr(). This produces valid Z80 code but not byte-identical
+ * in many cases (different instruction scheduling, register usage, and
+ * variable-slot allocation). The passing tests (CPRINTF, CPUTS, HELLO)
+ * match because their patterns are simple enough that both approaches
+ * converge. Programs with structs (BENCH), loops and locals (SORT2),
+ * and multi-arg calls (HOBCRC/BIN2TRD/LZH3) diverge.
  */
 
 #include "cc2_defs.h"
