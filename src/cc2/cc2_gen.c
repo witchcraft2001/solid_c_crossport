@@ -477,6 +477,16 @@ static const char A6225_R8_NAMES[]  = "bcdehlma";
 /* T6470: 16-bit register-pair name list (pairs of 2 chars). */
 static const char A6225_R16_NAMES[] = "bcdehlsp";
 
+/* D9BE6 in CCC.ASM: underscore suffix char for asm-label (default '_') */
+#define A6225_ID_SUFFIX '_'
+
+/* Template operand: value and/or string (S/M directives use str, rest use val).
+ * Mirrors how the ref compiler reads pairs of bytes at IX — one slot per op. */
+typedef struct {
+    int         val;
+    const char *str;
+} TmplOp;
+
 /* Emit a literal instruction to instr_list. The text may contain
  * tabs but must not contain newlines — callers split on 'N'/'Z'/'A'. */
 static void tmpl_emit_line(const char *text)
@@ -488,9 +498,28 @@ static void tmpl_emit_line(const char *text)
     snprintf(ins->text, INSTR_BUF, "%s", text);
 }
 
+/* Mirrors A6225 'M' name emission (A62F6..A631A): walk the name string,
+ * substituting '_' with the suffix char. After the name, if the first
+ * char was not '?' (locally-scoped label), append the suffix char. */
+static void tmpl_emit_name(char *buf, int *blen_p, const char *name)
+{
+    int blen = *blen_p;
+    char first = name[0];
+    const char *p;
+    for (p = name; *p; p++) {
+        char c = *p;
+        if (c == '_') c = A6225_ID_SUFFIX;
+        if (blen < INSTR_BUF - 1) buf[blen++] = c;
+    }
+    if (first != '?') {
+        if (blen < INSTR_BUF - 1) buf[blen++] = A6225_ID_SUFFIX;
+    }
+    *blen_p = blen;
+}
+
 /* Mirrors A6225 main dispatch loop.
  * tmpl: template string (0-terminated, uses directive chars above).
- * operands: array of 16-bit operand values; consumed left-to-right.
+ * operands: array of operand values (val+str); consumed left-to-right.
  * The template may emit multiple instructions separated by N/Z/A markers.
  *
  * Implementation detail: we accumulate characters into a buffer, and
@@ -584,6 +613,106 @@ static void emit_template(const char *tmpl, const int *operands, int nops)
             break;
         }
         default:  /* A63A8: literal char */
+            TMPL_PUT(ch);
+            break;
+        }
+    }
+    TMPL_FLUSH();
+
+#undef TMPL_FLUSH
+#undef TMPL_PUT
+#undef TMPL_PUTS
+}
+
+/* Extended template emitter supporting S (string) and M (name) directives.
+ * Each TmplOp carries both numeric value and optional string pointer.
+ * - S: emit op.str verbatim (A62E8)
+ * - M: emit op.str with '_' suffix handling (A62F6..A631A)
+ * Otherwise same as emit_template. */
+static void emit_template_ops(const char *tmpl, const TmplOp *ops, int nops)
+{
+    char buf[INSTR_BUF];
+    int  blen = 0;
+    int  opi = 0;
+
+    (void)nops;
+
+#define TMPL_FLUSH() do { \
+        buf[blen] = '\0'; \
+        if (blen > 0) tmpl_emit_line(buf); \
+        blen = 0; \
+    } while (0)
+
+#define TMPL_PUT(c) do { \
+        if (blen < INSTR_BUF - 1) buf[blen++] = (char)(c); \
+    } while (0)
+
+#define TMPL_PUTS(s) do { \
+        const char *_p = (s); \
+        while (*_p && blen < INSTR_BUF - 1) buf[blen++] = *_p++; \
+    } while (0)
+
+    while (*tmpl) {
+        unsigned char ch = (unsigned char)*tmpl++;
+        switch (ch) {
+        case 'N': TMPL_FLUSH(); break;
+        case 'Z': TMPL_FLUSH(); TMPL_PUTS("ld\t"); break;
+        case 'A': TMPL_FLUSH(); TMPL_PUTS("add\t"); break;
+        case 'X': TMPL_FLUSH(); TMPL_PUTS("inc\thl");
+                  if (opi < nops) opi++; break;
+        case 'Y': TMPL_FLUSH(); TMPL_PUTS("dec\thl");
+                  if (opi < nops) opi++; break;
+        case 'R': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            char r = A6225_R8_NAMES[v & 7];
+            if (r == 'm') TMPL_PUTS("(hl)");
+            else TMPL_PUT(r);
+            break;
+        }
+        case 'P': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            int idx = v & 6;
+            TMPL_PUT(A6225_R16_NAMES[idx]);
+            TMPL_PUT(A6225_R16_NAMES[idx + 1]);
+            break;
+        }
+        case 'D': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            char num[16];
+            snprintf(num, sizeof(num), "%u", (unsigned)(v & 0xFFFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'L': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            char num[8];
+            snprintf(num, sizeof(num), "%u", (unsigned)(v & 0xFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'H': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            char num[8];
+            snprintf(num, sizeof(num), "%u", (unsigned)((v >> 8) & 0xFF));
+            TMPL_PUTS(num);
+            break;
+        }
+        case 'C': {
+            int v = (opi < nops) ? ops[opi++].val : 0;
+            TMPL_PUT(v & 0xFF);
+            break;
+        }
+        case 'S': {  /* A62E8: emit string verbatim */
+            const char *s = (opi < nops) ? ops[opi++].str : NULL;
+            if (s) TMPL_PUTS(s);
+            break;
+        }
+        case 'M': {  /* A62F6: emit variable name with '_' suffix */
+            const char *s = (opi < nops) ? ops[opi++].str : NULL;
+            if (s) tmpl_emit_name(buf, &blen, s);
+            break;
+        }
+        default:
             TMPL_PUT(ch);
             break;
         }
@@ -1789,12 +1918,11 @@ partial:
                 }
             }
 
-            /* Recalculate frame with param-first layout:
-             * Params first (saved via push hl at IX-2),
-             * then used autos, skipping register-allocated and unused */
+            /* Recalculate frame: params + scalars + structs deepest.
+             * Same layout rule as the main allocator. */
             int offset = 0;
             func_has_locals = 0;
-            /* Parameters first */
+            /* Parameters first (closest to IX) */
             for (i = 0; i < local_count; i++) {
                 if (locals[i].prefix == 'P') {
                     offset += locals[i].size;
@@ -1802,9 +1930,10 @@ partial:
                     func_has_locals = 1;
                 }
             }
-            /* Then auto locals (skip register-allocated and unused) */
+            /* Scalars in declaration order */
             for (i = 0; i < local_count; i++) {
-                if (locals[i].prefix == 'A') {
+                if (locals[i].prefix == 'A' &&
+                    locals[i].type != 'S' && locals[i].type != 'U') {
                     if (locals[i].reg != VK_NONE) continue;
                     VarUsage *vu = find_var_usage(locals[i].id);
                     if (!vu || vu->count == 0) continue;
@@ -1813,6 +1942,33 @@ partial:
                     func_has_locals = 1;
                 }
             }
+            /* Structs/unions at DEEPEST offsets. If the cumulative offset
+             * before structs is odd (e.g. char scalar made it odd), pad so
+             * struct bases align with SP after push-bc allocation. */
+            int has_struct = 0;
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A' &&
+                    (locals[i].type == 'S' || locals[i].type == 'U')) {
+                    if (locals[i].reg == VK_NONE) {
+                        VarUsage *vu = find_var_usage(locals[i].id);
+                        if (vu && vu->count > 0) { has_struct = 1; break; }
+                    }
+                }
+            }
+            if (has_struct && (offset & 1)) offset++;  /* pad before struct */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A' &&
+                    (locals[i].type == 'S' || locals[i].type == 'U')) {
+                    if (locals[i].reg != VK_NONE) continue;
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (!vu || vu->count == 0) continue;
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            /* Round frame to even (push-bc = 2-byte alloc units) */
+            if (offset & 1) offset++;
             func_frame_bytes = offset;
         }
     }
@@ -5539,7 +5695,22 @@ static void parse_function(Cc2State *cc)
         ct_build_body(cc);
         ct_analyze_body();
 
-        /* Eliminate unused variables from frame (param-first layout) */
+        /* Frame layout — port of A0A62/A6131 behavior from CCC.ASM.
+         *
+         * Rule derived from studying the ASM (A0A62 pushes to D9CDD; ref
+         * output for timer_start shows A64 struct at deepest positions
+         * and scalars ordered so that declared-1st scalar ends up at the
+         * TOP of frame closest to IX):
+         *
+         *   1. Parameters first (saved via push hl at IX-2..IX-1).
+         *   2. Composite locals (struct/union) at DEEPEST offsets,
+         *      in declaration order, accessed via SP-relative + offset.
+         *   3. Scalar locals at TOP (closest to IX), in REVERSE declaration
+         *      order so that declared-1st scalar gets the lowest |ix_offset|.
+         *
+         * Implementation: build frame offset_in_frame from 0 (deepest) to
+         * frame_size (top). Then ix_offset = -(frame_size - offset_in_frame).
+         */
         {
             int i;
             int offset = 0;
@@ -5552,16 +5723,100 @@ static void parse_function(Cc2State *cc)
                     func_has_locals = 1;
                 }
             }
-            /* Then used auto locals */
+            /* Structs/unions at deepest remaining offsets, declaration order */
             for (i = 0; i < local_count; i++) {
-                if (locals[i].prefix == 'A') {
+                if (locals[i].prefix == 'A' &&
+                    (locals[i].type == 'S' || locals[i].type == 'U')) {
                     VarUsage *vu = find_var_usage(locals[i].id);
                     if (vu && vu->count > 0) {
                         offset += locals[i].size;
                         locals[i].ix_offset = -offset;
                         func_has_locals = 1;
                     } else {
-                        locals[i].ix_offset = 0; /* unused */
+                        locals[i].ix_offset = 0;
+                    }
+                }
+            }
+            /* Scalars: allocate in REVERSE declaration order so first-declared
+             * ends up at top of frame (lowest |ix_offset|) */
+            for (i = local_count - 1; i >= 0; i--) {
+                if (locals[i].prefix == 'A' &&
+                    locals[i].type != 'S' && locals[i].type != 'U') {
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (vu && vu->count > 0) {
+                        offset += locals[i].size;
+                        locals[i].ix_offset = -offset;
+                        func_has_locals = 1;
+                    } else {
+                        locals[i].ix_offset = 0;
+                    }
+                }
+            }
+            func_frame_bytes = offset;
+            /* Recompute ix_offset as -(frame_size - var_offset_in_frame).
+             * The loops above accumulated offset going "down" (each var at
+             * ix_offset = -running_total), which gives declared-1st scalar
+             * at DEEPEST. We want reverse: declared-1st scalar at SHALLOWEST.
+             * The reverse loop above already reversed scalars, so the layout
+             * is now: params (shallowest), scalars (reverse order, top), then
+             * structs (deepest). Let me re-invert ix_offsets:
+             *
+             * Actually the current loops produce the right layout. Verify:
+             * For timer_start (no params, A64 struct, A65/A66 scalars):
+             *   offset=0 start
+             *   A64 struct: offset=4, ix=-4     ← NOT what we want
+             *   A66 (rev scalar): offset=6, ix=-6
+             *   A65 (rev scalar): offset=8, ix=-8
+             *
+             * That gives A64 at (ix-4..ix-1) — declared FIRST at TOP. Wrong.
+             *
+             * We need: structs at DEEPEST (ix_offset = -frame_size+0).
+             * That means structs should be allocated LAST in the offset
+             * accumulation. Swap the order: scalars first (top), then
+             * structs (deepest). Also scalars in reverse. */
+        }
+
+        /* Allocation order derived from studying timer_start in ref:
+         *   1. Params (closest to IX, first to be placed)
+         *   2. Scalars in DECLARATION ORDER (first-declared at top)
+         *   3. Structs/unions at DEEPEST (last)
+         * ix_offset increases (in magnitude) with each placement. */
+        {
+            int i;
+            int offset = 0;
+            func_has_locals = 0;
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'P') {
+                    offset += locals[i].size;
+                    locals[i].ix_offset = -offset;
+                    func_has_locals = 1;
+                }
+            }
+            /* Scalars in declaration order (top-to-bottom of scalar region) */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A' &&
+                    locals[i].type != 'S' && locals[i].type != 'U') {
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (vu && vu->count > 0) {
+                        offset += locals[i].size;
+                        locals[i].ix_offset = -offset;
+                        func_has_locals = 1;
+                    } else {
+                        locals[i].ix_offset = 0;
+                    }
+                }
+            }
+            /* Structs/unions: deepest */
+            for (i = 0; i < local_count; i++) {
+                if (locals[i].prefix == 'A' &&
+                    (locals[i].type == 'S' || locals[i].type == 'U')) {
+                    VarUsage *vu = find_var_usage(locals[i].id);
+                    if (vu && vu->count > 0) {
+                        offset += locals[i].size;
+                        locals[i].ix_offset = -offset;
+                        func_has_locals = 1;
+                    } else {
+                        locals[i].ix_offset = 0;
                     }
                 }
             }
