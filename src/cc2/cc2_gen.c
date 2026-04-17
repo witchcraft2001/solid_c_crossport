@@ -1907,13 +1907,14 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
             emit_instr(cc, "ld", operand);
             emit_instr(cc, "call", asmname);
         } else if (arg_count == 3 && nargs >= 3) {
-            /* F3: args[2] → BC, args[1] → DE, args[0] → HL */
+            /* F3 reference order: DE first, BC second, HL third.
+             * ld hl,arg1; ex de,hl; ld bc,arg2; ld hl,arg0; call */
             char operand[128];
-            eval_format(&args[2], operand, sizeof(operand), 0); /* bc */
-            emit_instr(cc, "ld", operand);
             eval_format(&args[1], operand, sizeof(operand), 1);
             emit_instr(cc, "ld", operand);
             emit_instr(cc, "ex", "de,hl");
+            eval_format(&args[2], operand, sizeof(operand), 0); /* bc */
+            emit_instr(cc, "ld", operand);
             eval_format(&args[0], operand, sizeof(operand), 1);
             emit_instr(cc, "ld", operand);
             emit_instr(cc, "call", asmname);
@@ -4076,9 +4077,16 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "sbc", "a,h");
                 } else {
                     /* Signed or complex comparison: use ?cpshd library call.
-                     * Load HL=a first so we don't clobber a if it's in DE. */
-                    gen_load_hl(cc, a);
-                    gen_load_de(cc, b);
+                     * Reference pattern for globals: ld hl,(b); ex de,hl; ld hl,(a); call
+                     * For simple global-global case, load b (→DE) first then a (→HL) */
+                    if (a->kind == VK_GLOBAL && b->kind == VK_GLOBAL &&
+                        !a->is_addr && !b->is_addr) {
+                        gen_load_de(cc, b);
+                        gen_load_hl(cc, a);
+                    } else {
+                        gen_load_hl(cc, a);
+                        gen_load_de(cc, b);
+                    }
                     decl_add("?cpshd", 0);
                     emit_instr(cc, "call", "?cpshd");
                 }
