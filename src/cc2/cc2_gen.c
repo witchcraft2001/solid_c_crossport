@@ -3442,6 +3442,17 @@ static void gen_expr_stmt(Cc2State *cc)
                     } else if (dest->kind == VK_BC) {
                         gen_load_bc(cc, value);
                         vpush(VK_BC, NULL, 0, type);
+                    } else if (dest->kind == VK_STACK) {
+                        /* LHS address was saved on hardware stack across a
+                         * function call. Load value into DE, pop address
+                         * into HL, store via HL (matches ASM pattern when
+                         * VK_ADDR_HL spills). */
+                        gen_load_de(cc, value);
+                        emit_instr(cc, "pop", "hl");
+                        emit_instr(cc, "ld", "(hl),e");
+                        emit_instr(cc, "inc", "hl");
+                        emit_instr(cc, "ld", "(hl),d");
+                        vpush(VK_DE, NULL, 0, type);
                     } else {
                         gen_load_hl(cc, value);
                         gen_store_hl(cc, dest);
@@ -4337,7 +4348,21 @@ static void gen_expr_stmt(Cc2State *cc)
         case 'X': {
             /* Function call within expression */
             if (func_is_simple) {
-                /* Simple function: use symbolic evaluator */
+                /* Simple function: use symbolic evaluator.
+                 *
+                 * Before the call, spill any live VK_ADDR_HL on vstack to
+                 * the hardware stack — the call will clobber HL. Convert
+                 * to VK_STACK so the later :I/:N/:C assignment recovers
+                 * the address via pop hl. This matches the ASM compiler's
+                 * approach to preserve destination addresses across calls. */
+                int k;
+                for (k = 0; k < vsp; k++) {
+                    if (vstack[k].kind == VK_ADDR_HL) {
+                        emit_instr(cc, "push", "hl");
+                        vstack[k].kind = VK_STACK;
+                        break; /* only one HL value is live at a time */
+                    }
+                }
                 char fname[128];
                 strncpy(fname, tok + 1, sizeof(fname) - 1);
                 fname[sizeof(fname) - 1] = '\0';
