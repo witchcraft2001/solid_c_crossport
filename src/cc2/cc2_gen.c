@@ -5849,6 +5849,7 @@ static void gen_return_stmt(Cc2State *cc)
 static void parse_function_body(Cc2State *cc)
 {
     int ch;
+    int cur_stmt_idx = 0;  /* track position in ct_stmts[] for tree emission */
     func_is_simple = body_is_simple(cc);
 
     for (;;) {
@@ -5864,6 +5865,7 @@ static void parse_function_body(Cc2State *cc)
             int lnum = tmc_read_number(cc);
             tmc_skip_line(cc);
             emit_at_label(cc, lnum);
+            cur_stmt_idx++;
             continue;
         }
 
@@ -5875,6 +5877,7 @@ static void parse_function_body(Cc2State *cc)
                 char func_name[128];
                 tmc_read_token(cc, func_name, sizeof(func_name));
                 parse_func_call(cc, func_name);
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -5888,6 +5891,7 @@ static void parse_function_body(Cc2State *cc)
                 char buf[32];
                 snprintf(buf, sizeof(buf), "@%d", lbl);
                 emit_label_instr(buf);
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -5900,6 +5904,7 @@ static void parse_function_body(Cc2State *cc)
                     emit_instr(cc, "jp", buf);
                     loop_depth--;
                 }
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -5912,6 +5917,7 @@ static void parse_function_body(Cc2State *cc)
                  * Matching the CCC.ASM optimizer behavior. */
                 int saved_instr_count = instr_count;
                 gen_cond_jump(cc);
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -5928,6 +5934,7 @@ static void parse_function_body(Cc2State *cc)
                 } else {
                     emit_instr(cc, "ret", "");
                 }
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -5942,6 +5949,7 @@ static void parse_function_body(Cc2State *cc)
                     tmc_pushback(cc, ch);
                     gen_expr_stmt(cc);
                 }
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -6026,6 +6034,7 @@ static void parse_function_body(Cc2State *cc)
                 } else {
                     tmc_skip_line(cc);
                 }
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -6035,12 +6044,12 @@ static void parse_function_body(Cc2State *cc)
                  * Emits: cp <val>; jp z,@<label(L<n>)> */
                 tmc_expect_tab(cc);
                 int dch = tmc_read_char(cc);
-                if (dch != 'L') { tmc_skip_line(cc); continue; }
+                if (dch != 'L') { tmc_skip_line(cc); cur_stmt_idx++; continue; }
                 int tmc_label = tmc_read_number(cc);
                 int target = get_label(cc, tmc_label);
                 tmc_expect_tab(cc);
                 dch = tmc_read_char(cc);
-                if (dch != '#') { tmc_skip_line(cc); continue; }
+                if (dch != '#') { tmc_skip_line(cc); cur_stmt_idx++; continue; }
                 int cval = tmc_read_number(cc);
                 tmc_skip_line(cc);
                 char buf[32];
@@ -6048,6 +6057,7 @@ static void parse_function_body(Cc2State *cc)
                 emit_instr(cc, "cp", buf);
                 snprintf(buf, sizeof(buf), "z,@%d", target);
                 emit_instr(cc, "jp", buf);
+                cur_stmt_idx++;
                 continue;
             }
 
@@ -6057,19 +6067,35 @@ static void parse_function_body(Cc2State *cc)
                  * Emits: jp @<label(L<n>)> */
                 tmc_expect_tab(cc);
                 int dch = tmc_read_char(cc);
-                if (dch != 'L') { tmc_skip_line(cc); continue; }
+                if (dch != 'L') { tmc_skip_line(cc); cur_stmt_idx++; continue; }
                 int tmc_label = tmc_read_number(cc);
                 int target = get_label(cc, tmc_label);
                 tmc_skip_line(cc);
                 char buf[32];
                 snprintf(buf, sizeof(buf), "@%d", target);
                 emit_instr(cc, "jp", buf);
+                cur_stmt_idx++;
                 continue;
             }
 
-            /* Expression statement: starts with A<n>, G<name>, etc. */
+            /* Expression statement: starts with A<n>, G<name>, etc.
+             *
+             * Try tree-walking emitter first if enabled and we have a
+             * tree for this statement. Falls back to streaming emitter
+             * on unsupported node kinds or when tree is unavailable. */
+            if (ct_emit_enabled() && cur_stmt_idx < ct_stmt_count) {
+                if (ct_emit_stmt(cc, cur_stmt_idx)) {
+                    /* Tree emission succeeded — consume TMC line */
+                    tmc_skip_line(cc);
+                    cur_stmt_idx++;
+                    continue;
+                }
+                /* Fallback: reset vstack & fall through to streaming.
+                 * ct_emit_stmt already unwound vsp to saved depth. */
+            }
             tmc_pushback(cc, ch);
             gen_expr_stmt(cc);
+            cur_stmt_idx++;
             continue;
         }
 
