@@ -1590,9 +1590,9 @@ static int ct_build_expr(Cc2State *cc)
             break;
         }
         case 'X': case 'Y': {
-            /* Function call in expression — skip for tree building */
-            /* The call and args are handled by parse_func_call in gen_expr_stmt */
-            /* For tree, just record the call node */
+            /* Function call — record name + placeholder node.
+             * Args follow (pushed to stack, consumed by 'p' directives).
+             * Mirrors the ASM tree builder's CALL node creation. */
             int n = ct_alloc_node();
             if (n >= 0) {
                 ct_nodes[n].kind = CT_CALL;
@@ -1602,6 +1602,41 @@ static int ct_build_expr(Cc2State *cc)
             ct_push(n);
             break;
         }
+        case 'p': {
+            /* Push arg — pop top value, attach as child of pending CT_CALL
+             * (the topmost CT_CALL node on the stack). This preserves var
+             * references inside args so they get counted in analysis. */
+            int arg = ct_pop();
+            int ci;
+            for (ci = ct_esp - 1; ci >= 0; ci--) {
+                int ni = ct_estack[ci];
+                if (ni >= 0 && ni < ct_node_count &&
+                    ct_nodes[ni].kind == CT_CALL) {
+                    if (ct_nodes[ni].left < 0) {
+                        ct_nodes[ni].left = arg;
+                    } else if (ct_nodes[ni].right < 0) {
+                        ct_nodes[ni].right = arg;
+                    } else {
+                        /* Chain further args through a CT_COMMA node */
+                        int combo = ct_alloc_node();
+                        if (combo >= 0) {
+                            ct_nodes[combo].kind = CT_COMMA;
+                            ct_nodes[combo].left = ct_nodes[ni].right;
+                            ct_nodes[combo].right = arg;
+                            ct_nodes[ni].right = combo;
+                        }
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+        case 'c':
+            /* Return type marker — no-op for tree build */
+            break;
+        case 'F': case 'U':
+            /* Finalize call — args already attached, CT_CALL on stack */
+            break;
         default:
             /* Unknown token — skip */
             break;
@@ -1769,16 +1804,93 @@ static void ct_count_node(int idx, int depth) {
     ct_count_node(n->right, depth);
 }
 
+/* Check if a tree contains any CT_CALL node. */
+static int ct_tree_has_call(int idx)
+{
+    if (idx < 0 || idx >= ct_node_count) return 0;
+    CTNode *n = &ct_nodes[idx];
+    if (n->kind == CT_CALL) return 1;
+    if (ct_tree_has_call(n->left)) return 1;
+    if (ct_tree_has_call(n->right)) return 1;
+    return 0;
+}
+
 static void ct_analyze_body(void) {
     ct_var_count = 0;
     int depth = 0;
     int i;
+    /* First pass: count refs */
     for (i = 0; i < ct_stmt_count; i++) {
         CTStmt *s = &ct_stmts[i];
         if (s->kind == 'd') depth++;
         else if (s->kind == 'b') { if (depth > 0) depth--; }
         if (s->root >= 0) {
             ct_count_node(s->root, depth);
+        }
+    }
+
+    /* Second pass: detect crosses_call using statement-range analysis.
+     * For each variable, find first_stmt and last_stmt indices. If any
+     * statement index in [first_stmt, last_stmt] contains a function
+     * call (CT_CALL node), mark crosses_call. This is conservative but
+     * correct: a variable whose live range (first-to-last ref) spans a
+     * call can have its register value clobbered by that call. */
+    {
+        int first_stmt[CT_MAX_VARS];
+        int last_stmt[CT_MAX_VARS];
+        int k;
+        for (k = 0; k < ct_var_count; k++) {
+            first_stmt[k] = -1;
+            last_stmt[k] = -1;
+        }
+        for (i = 0; i < ct_stmt_count; i++) {
+            CTStmt *s = &ct_stmts[i];
+            if (s->root < 0) continue;
+            /* Collect unique var refs in this statement (iterative walk) */
+            int stmt_vars[CT_MAX_VARS];
+            int sv_count = 0;
+            int stack[CT_MAX_NODES];
+            int sp = 0;
+            stack[sp++] = s->root;
+            while (sp > 0) {
+                int idx = stack[--sp];
+                if (idx < 0 || idx >= ct_node_count) continue;
+                CTNode *n = &ct_nodes[idx];
+                if (n->kind == CT_VAR) {
+                    int j;
+                    int found = 0;
+                    for (j = 0; j < sv_count; j++)
+                        if (stmt_vars[j] == n->value) { found = 1; break; }
+                    if (!found && sv_count < CT_MAX_VARS)
+                        stmt_vars[sv_count++] = n->value;
+                }
+                if (n->left >= 0 && sp < CT_MAX_NODES) stack[sp++] = n->left;
+                if (n->right >= 0 && sp < CT_MAX_NODES) stack[sp++] = n->right;
+            }
+            int j;
+            for (j = 0; j < sv_count; j++) {
+                int vid = stmt_vars[j];
+                int vi;
+                for (vi = 0; vi < ct_var_count; vi++) {
+                    if (ct_vars[vi].id == vid) {
+                        if (first_stmt[vi] < 0) first_stmt[vi] = i;
+                        last_stmt[vi] = i;
+                        break;
+                    }
+                }
+            }
+        }
+        for (k = 0; k < ct_var_count; k++) {
+            if (first_stmt[k] < 0 || first_stmt[k] == last_stmt[k]) continue;
+            int ci;
+            for (ci = first_stmt[k]; ci <= last_stmt[k]; ci++) {
+                if (ci < 0 || ci >= ct_stmt_count) continue;
+                CTStmt *s = &ct_stmts[ci];
+                if (s->root >= 0 && ct_tree_has_call(s->root)) {
+                    ct_vars[k].crosses_call = 1;
+                    break;
+                }
+            }
         }
     }
 }
