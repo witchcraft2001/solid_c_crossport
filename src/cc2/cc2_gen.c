@@ -4441,10 +4441,13 @@ static void gen_cond_jump(Cc2State *cc)
     int negate = 0;
     int cmp_op = 0;
     char cmp_type = 'N';
-    /* AND-pattern tracking: when a second comparison is seen, save the split
-     * position so m can insert the first condition's jump retroactively */
+    /* AND/OR-pattern tracking: when a second comparison is seen, save the split
+     * position so m/s can insert the first condition's jump retroactively.
+     * pending_split_pos is updated at the END of each comparison emission
+     * (so it points to the gap between cond1 and cond2 when cond2 starts). */
     int and_split_pos = -1;
     int and_prev_cmp_op = 0;
+    int pending_split_pos = -1;
 
     for (;;) {
         int first = expr_read_tok(cc, tok, sizeof(tok));
@@ -4508,11 +4511,13 @@ static void gen_cond_jump(Cc2State *cc)
         }
         case '<': case '>': case '=': case '!':
         case '[': case ']': {
-            /* Track AND split point: if a previous comparison is pending,
-             * record split so m can insert the first jump retroactively */
-            if (cmp_op != 0) {
+            /* Track AND/OR split point: if a previous comparison is pending,
+             * snapshot its end position (from pending_split_pos, which was
+             * recorded at the end of that comparison's emission) so m/s can
+             * insert the first jump retroactively between cond1 and cond2. */
+            if (cmp_op != 0 && pending_split_pos >= 0) {
                 and_prev_cmp_op = cmp_op;
-                and_split_pos = instr_count;
+                and_split_pos = pending_split_pos;
             }
             cmp_op = first;
             cmp_type = tok[1];
@@ -4649,6 +4654,9 @@ static void gen_cond_jump(Cc2State *cc)
                     emit_instr(cc, "call", "?cpshd");
                 }
             }
+            /* Record end of this comparison's emission for retroactive
+             * insertion of cond1's jump if an s/m follows after cond2. */
+            pending_split_pos = instr_count;
             break;
         }
         /* Handle type conversions and other ops in jump expressions */
@@ -4909,12 +4917,44 @@ static void gen_cond_jump(Cc2State *cc)
         }
         case 's': {
             /* Logical OR in jump condition (short-circuit).
-             * If first condition is TRUE, skip past the exit jump.
              * For `cond1 cond2 s n` → jump to target if NEITHER is true.
-             * Emit: jp <true>,@skip for first cond, then evaluate second.
-             * The @skip label is emitted after the final jump by appending
-             * it as a label instruction. */
-            if (cmp_op) {
+             * If cond1 is true, skip past the exit jump (to @skip — the
+             * fallthrough past the enclosing j-statement's jump).
+             *
+             * Both conds have been evaluated by the time we see 's'.
+             * To emit short-circuit properly, we insert the jp for cond1
+             * retroactively BEFORE cond2's instructions, using the same
+             * split-position mechanism as the AND ('m') handler.
+             * and_split_pos was recorded when cond2 started a new
+             * comparison while cond1's cmp_op was pending. */
+            if (and_split_pos >= 0 && and_prev_cmp_op != 0) {
+                int skip = cc->local_label++;
+                char jbuf2[64];
+                /* True-case jump for cond1: z for '=' (eq), nz for '!',
+                 * c for '<' (unsigned lt), nc for ']' (unsigned gte). */
+                switch (and_prev_cmp_op) {
+                case '=': snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
+                case '!': snprintf(jbuf2, sizeof(jbuf2), "nz,@%d", skip); break;
+                case '<': snprintf(jbuf2, sizeof(jbuf2), "c,@%d", skip); break;
+                case ']': snprintf(jbuf2, sizeof(jbuf2), "nc,@%d", skip); break;
+                default:  snprintf(jbuf2, sizeof(jbuf2), "z,@%d", skip); break;
+                }
+                if (and_split_pos < instr_count && instr_count < MAX_INSTR) {
+                    int k;
+                    instr_count++;
+                    for (k = instr_count - 1; k > and_split_pos; k--)
+                        instr_list[k] = instr_list[k - 1];
+                    instr_list[and_split_pos].type = INSTR_INST;
+                    snprintf(instr_list[and_split_pos].text, INSTR_BUF,
+                             "jp\t%s", jbuf2);
+                    if (pending_split_pos > and_split_pos) pending_split_pos++;
+                }
+                and_split_pos = -1;
+                and_prev_cmp_op = 0;
+                or_skip_label = skip;
+                /* cmp_op (cond2) stays for the final branch. */
+            } else if (cmp_op) {
+                /* Single-comparison before s (unusual) — emit jp now. */
                 int skip = cc->local_label++;
                 char jbuf2[64];
                 switch (cmp_op) {
@@ -4926,8 +4966,6 @@ static void gen_cond_jump(Cc2State *cc)
                 }
                 emit_instr(cc, "jp", jbuf2);
                 cmp_op = 0;
-                /* Emit skip label LATER: after the final jp is emitted,
-                 * we need @skip: to follow. Use a marker in instr_list. */
                 or_skip_label = skip;
             }
             break;
@@ -4956,6 +4994,10 @@ static void gen_cond_jump(Cc2State *cc)
                         instr_list[k] = instr_list[k - 1];
                     instr_list[and_split_pos].type = INSTR_INST;
                     snprintf(instr_list[and_split_pos].text, INSTR_BUF, "jp\t%s", jbuf2);
+                    /* pending_split_pos was recorded at end of cond2;
+                     * it must shift by +1 since an instr was inserted
+                     * before it. Needed for 3+-way AND/OR chains. */
+                    if (pending_split_pos > and_split_pos) pending_split_pos++;
                 }
                 and_split_pos = -1;
                 and_prev_cmp_op = 0;
