@@ -938,6 +938,32 @@ static void peephole_optimize(void)
             }
         }
 
+        /* pop hl / ex de,hl → pop de (if HL's old value isn't needed after).
+         * Common after VK_ADDR_HL save/restore where we need the popped
+         * value in DE, not HL. */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strcmp(a->text, "pop\thl") == 0 &&
+            strcmp(b->text, "ex\tde,hl") == 0) {
+            int hl_used = 0;
+            if (i + 2 < instr_count) {
+                Instr *c = &instr_list[i + 2];
+                if (c->type == INSTR_INST &&
+                    (strstr(c->text, ",hl") || strstr(c->text, ",h") ||
+                     strstr(c->text, ",l") || strstr(c->text, "hl,") ||
+                     strstr(c->text, "h,") || strstr(c->text, "l,") ||
+                     strstr(c->text, "(hl)")))
+                    hl_used = 1;
+            }
+            if (!hl_used) {
+                snprintf(a->text, INSTR_BUF, "pop\tde");
+                for (j = i + 1; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+        }
+
         /* push hl / pop de → ex de,hl (register transfer) */
         if (a->type == INSTR_INST && b->type == INSTR_INST &&
             strcmp(a->text, "push\thl") == 0 &&
