@@ -1745,6 +1745,55 @@ static void ct_build_body(Cc2State *cc)
                 continue;
             }
 
+            if (ch == 'e') {
+                /* Switch expression — tree form: statement kind 'e'
+                 * with root = expression tree for switch value. */
+                int etype = tmc_read_char(cc);
+                tmc_expect_tab(cc);
+                int root = ct_build_expr(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 's'; /* 's' = switch expr */
+                    ct_stmts[ct_stmt_count].label = etype; /* C/I/N */
+                    ct_stmts[ct_stmt_count].root = root;
+                    ct_stmt_count++;
+                }
+                continue;
+            }
+
+            if (ch == 'w') {
+                /* Switch case entry: w\tL<n>\t#<val> */
+                tmc_expect_tab(cc);
+                tmc_read_char(cc); /* 'L' */
+                int lnum = tmc_read_number(cc);
+                tmc_expect_tab(cc);
+                tmc_read_char(cc); /* '#' */
+                int cval = tmc_read_number(cc);
+                tmc_skip_line(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'w';
+                    ct_stmts[ct_stmt_count].label = lnum;
+                    ct_stmts[ct_stmt_count].negate = cval; /* case value */
+                    ct_stmts[ct_stmt_count].root = -1;
+                    ct_stmt_count++;
+                }
+                continue;
+            }
+
+            if (ch == 'f') {
+                /* Switch default: f\tL<n> */
+                tmc_expect_tab(cc);
+                tmc_read_char(cc); /* 'L' */
+                int lnum = tmc_read_number(cc);
+                tmc_skip_line(cc);
+                if (ct_stmt_count < CT_MAX_STMTS) {
+                    ct_stmts[ct_stmt_count].kind = 'f';
+                    ct_stmts[ct_stmt_count].label = lnum;
+                    ct_stmts[ct_stmt_count].root = -1;
+                    ct_stmt_count++;
+                }
+                continue;
+            }
+
             /* Expression statement (including function calls) */
             tmc_pushback(cc, ch);
             int root = ct_build_expr(cc);
@@ -1893,6 +1942,197 @@ static void ct_analyze_body(void) {
             }
         }
     }
+}
+
+/* ================================================================
+ *  Tree-walking emitter — port of A19FB/A7374 in CCC.ASM
+ *
+ *  Walks the ct_nodes/ct_stmts code tree in evaluation order and
+ *  emits Z80 instructions via the existing emit_instr/vstack
+ *  infrastructure. The key advantage over streaming emission
+ *  (gen_expr_stmt) is REORDERING: for an assignment whose RHS
+ *  contains a function call that would clobber HL used for the
+ *  LHS address, the tree walker evaluates RHS first, then LHS,
+ *  matching the reference compiler's output.
+ *
+ *  Status: EARLY STAGE. Handles constants, globals, simple
+ *  assignments. Falls back to direct emission via the 'ct_fallback'
+ *  flag for unsupported node kinds. Gated behind env var
+ *  CC2_TREE_EMIT=1 so existing output is preserved until the
+ *  tree emitter reaches parity.
+ *
+ *  Mirrors CCC.ASM entry points:
+ *    A19FB — recursive expression walker
+ *    A7374 — main body iterator
+ *    T8BF0 — op-code dispatch table (partially covered)
+ * ================================================================ */
+
+/* Forward decls — the emitter uses these helpers defined below */
+static void vpush(int kind, const char *sym, int value, char type);
+static VVal *vpop(void);
+static VVal *vtop(void);
+static void gen_load_hl(Cc2State *cc, VVal *v);
+static void gen_load_de(Cc2State *cc, VVal *v);
+static void gen_load_a(Cc2State *cc, VVal *v);
+static void gen_load_bc(Cc2State *cc, VVal *v);
+static void gen_store_hl(Cc2State *cc, VVal *dest);
+static void gen_store_a(Cc2State *cc, VVal *dest);
+
+/* Returns 1 if env var CC2_TREE_EMIT=1 — enables the new emitter. */
+static int ct_emit_enabled(void)
+{
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("CC2_TREE_EMIT");
+        cached = (e && e[0] == '1') ? 1 : 0;
+    }
+    return cached;
+}
+
+/* Set when ct_emit_node can't handle a subtree — caller should fall
+ * back to direct TMC-streaming emission for that statement. */
+static int ct_fallback;
+
+/* Forward decl */
+static void ct_emit_node(Cc2State *cc, int idx);
+
+/* Check if a subtree contains a CT_CALL that would clobber HL. */
+static int ct_subtree_has_call_local(int idx)
+{
+    if (idx < 0 || idx >= ct_node_count) return 0;
+    CTNode *n = &ct_nodes[idx];
+    if (n->kind == CT_CALL) return 1;
+    if (ct_subtree_has_call_local(n->left)) return 1;
+    if (ct_subtree_has_call_local(n->right)) return 1;
+    return 0;
+}
+
+/* Emit code for a tree node. Result left on vstack.
+ * Sets ct_fallback=1 if encountering an unhandled kind. */
+static void ct_emit_node(Cc2State *cc, int idx)
+{
+    if (idx < 0 || idx >= ct_node_count) return;
+    CTNode *n = &ct_nodes[idx];
+
+    switch (n->kind) {
+    case CT_CONST:
+        vpush(VK_IMM, NULL, n->value, n->type ? n->type : 'N');
+        break;
+    case CT_GLOBAL: {
+        /* Push as VK_GLOBAL; asm-name conversion already applied at build */
+        char asmn[128];
+        make_asm_name(n->sym, asmn, sizeof(asmn));
+        vpush(VK_GLOBAL, asmn, 0, n->type ? n->type : 'N');
+        /* Record extrn declaration if not already public */
+        int found = 0, j;
+        for (j = 0; j < decl_count; j++)
+            if (strcmp(decl_list[j].name, asmn) == 0) { found = 1; break; }
+        if (!found) decl_add(asmn, 0);
+        break;
+    }
+    case CT_VAR: {
+        LocalVar *lv = find_local(n->value);
+        if (lv) {
+            if (lv->reg != VK_NONE)
+                vpush(lv->reg, NULL, 0, lv->type);
+            else
+                vpush(VK_LOCAL, NULL, lv->ix_offset, lv->type);
+        } else {
+            ct_fallback = 1;
+        }
+        break;
+    }
+    case CT_ASSIGN: {
+        /* KEY REORDERING: evaluate RHS (right) first if it contains
+         * a call — this is the critical fix for Mass[i] = rand() / K
+         * patterns. LHS address is computed AFTER RHS to avoid HL
+         * clobber. */
+        int lhs = n->left;
+        int rhs = n->right;
+        char atype = (char)n->op; /* :C/:N/:I/:R */
+        int rhs_has_call = ct_subtree_has_call_local(rhs);
+        int lhs_is_addr_hl = 0;
+        /* LHS "needs HL" if it's a DEREF (simple var goes to VK_LOCAL/
+         * VK_GLOBAL and doesn't need HL for the store). */
+        if (lhs >= 0 && lhs < ct_node_count) {
+            CTNode *ln = &ct_nodes[lhs];
+            if (ln->kind == CT_DEREF || ln->kind == CT_SUBSCR ||
+                (ln->kind == CT_UNARY && ln->op == '\''))
+                lhs_is_addr_hl = 1;
+        }
+        if (rhs_has_call && lhs_is_addr_hl) {
+            /* Evaluate RHS first, preserve in DE; then compute LHS
+             * address into HL; then store via (hl). */
+            ct_emit_node(cc, rhs);
+            if (ct_fallback) break;
+            /* Result on vstack. Move to DE (for word) or A (for byte). */
+            if (atype == 'C') {
+                VVal *r = vtop();
+                if (r) gen_load_a(cc, r);
+                vsp--;
+                ct_emit_node(cc, lhs);
+                if (ct_fallback) break;
+                /* LHS should now be VK_ADDR_HL */
+                emit_instr(cc, "ld", "(hl),a");
+                vpush(VK_A, NULL, 0, 'C');
+            } else {
+                VVal *r = vtop();
+                if (r) gen_load_de(cc, r);
+                vsp--;
+                ct_emit_node(cc, lhs);
+                if (ct_fallback) break;
+                emit_instr(cc, "ld", "(hl),e");
+                emit_instr(cc, "inc", "hl");
+                emit_instr(cc, "ld", "(hl),d");
+                vpush(VK_DE, NULL, 0, atype);
+            }
+        } else {
+            /* Standard order: LHS, RHS, store via existing :I/:N/:C
+             * logic. Emit both onto vstack, then simulate the :
+             * dispatch to reuse existing code paths. */
+            ct_emit_node(cc, lhs);
+            if (ct_fallback) break;
+            ct_emit_node(cc, rhs);
+            if (ct_fallback) break;
+            /* At this point vstack has [dest, value]. Fallback: mark
+             * for streaming emitter to finish (rare in practice since
+             * non-call RHS works fine streaming). */
+            ct_fallback = 1;
+        }
+        break;
+    }
+    default:
+        /* Unhandled node kind — fall back to streaming emitter */
+        ct_fallback = 1;
+        break;
+    }
+}
+
+/* Attempt to emit a single statement from the tree. Returns 1 if
+ * successfully emitted, 0 if fallback required. */
+static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
+{
+    if (stmt_idx < 0 || stmt_idx >= ct_stmt_count) return 0;
+    CTStmt *s = &ct_stmts[stmt_idx];
+    ct_fallback = 0;
+    int saved_vsp = vsp;
+
+    switch (s->kind) {
+    case 'e':
+        if (s->root < 0) return 1;
+        ct_emit_node(cc, s->root);
+        break;
+    default:
+        ct_fallback = 1;
+        break;
+    }
+
+    if (ct_fallback) {
+        /* Unwind vstack to saved depth — caller will re-emit via stream. */
+        vsp = saved_vsp;
+        return 0;
+    }
+    return 1;
 }
 
 /* ================================================================
