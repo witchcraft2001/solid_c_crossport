@@ -829,20 +829,28 @@ static void peephole_optimize(void)
             }
         }
 
-        /* ld l,a / ld a,l → remove ld a,l (redundant reload) */
+        /* ld X,a / ld a,X → remove ld a,X (redundant reload; X = 8-bit reg).
+         * Covers l↔a, e↔a, d↔a, h↔a, b↔a, c↔a. The second instruction
+         * loads same value back into A. */
         if (a->type == INSTR_INST && b->type == INSTR_INST &&
-            strcmp(a->text, "ld\tl,a") == 0 &&
-            strcmp(b->text, "ld\ta,l") == 0) {
+            strncmp(a->text, "ld\t", 3) == 0 &&
+            strncmp(b->text, "ld\ta,", 5) == 0 &&
+            a->text[3] != 'a' && a->text[4] == ',' && a->text[5] == 'a' &&
+            a->text[6] == '\0' && b->text[5] == a->text[3] &&
+            b->text[6] == '\0') {
             for (j = i + 1; j < instr_count - 1; j++)
                 instr_list[j] = instr_list[j + 1];
             instr_count--;
             continue;
         }
 
-        /* ld a,l / ld l,a → remove ld l,a (redundant store-back) */
+        /* ld a,X / ld X,a → remove ld X,a (redundant store-back). */
         if (a->type == INSTR_INST && b->type == INSTR_INST &&
-            strcmp(a->text, "ld\ta,l") == 0 &&
-            strcmp(b->text, "ld\tl,a") == 0) {
+            strncmp(a->text, "ld\ta,", 5) == 0 &&
+            a->text[6] == '\0' && a->text[5] != 'a' &&
+            strncmp(b->text, "ld\t", 3) == 0 &&
+            b->text[3] == a->text[5] && b->text[4] == ',' &&
+            b->text[5] == 'a' && b->text[6] == '\0') {
             for (j = i + 1; j < instr_count - 1; j++)
                 instr_list[j] = instr_list[j + 1];
             instr_count--;
