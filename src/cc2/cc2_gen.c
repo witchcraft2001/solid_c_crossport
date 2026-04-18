@@ -802,6 +802,18 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* @N: / @N: → remove one (duplicate label definition).
+         * Can happen when two code paths emit the same target label
+         * (e.g., loop exit coinciding with epilogue). */
+        if (a->type == INSTR_LABEL && b->type == INSTR_LABEL &&
+            strcmp(a->text, b->text) == 0) {
+            for (j = i; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* @N: / @M: → remove @N: if not referenced (dead label before
          * another label). Common when our switch code emits redundant
          * labels that no jump targets. */
@@ -1123,6 +1135,10 @@ static void emit_dangling_labels(void)
             }
         }
     }
+    /* Epilogue label is emitted AFTER flush_instructions (direct file
+     * write), so mark it as "seen" to avoid duplicate definition. */
+    if (func_epilogue_label >= 0 && func_epilogue_label < MAX_LABELS)
+        seen[func_epilogue_label] = 1;
     for (j = 0; j < MAX_LABELS; j++) {
         if (refd[j] && !seen[j] && instr_count < MAX_INSTR) {
             Instr *ins = &instr_list[instr_count++];
