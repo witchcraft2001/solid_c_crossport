@@ -829,6 +829,59 @@ static void peephole_optimize(void)
             }
         }
 
+        /* ld a,(SRC) / ld <R>,a → ld <R>,(SRC) when A is dead after.
+         * IMPORTANT: Z80 only allows 'ld <R>,(hl)' and 'ld <R>,(ix±N)'
+         * for byte register loads. 'ld c,(sym)' is INVALID.
+         * R = b/c/d/e/h/l. Saves one instr. */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "ld\ta,(", 6) == 0 &&
+            (a->text[6] == 'h' || a->text[6] == 'i') && /* (hl) or (ix...) */
+            strncmp(b->text, "ld\t", 3) == 0 &&
+            b->text[3] != 'a' && b->text[4] == ',' &&
+            b->text[5] == 'a' && b->text[6] == '\0') {
+            /* Check A isn't used afterwards (next instruction shouldn't
+             * reference A). Simple check: if i+2 uses A, bail. */
+            int a_used = 0;
+            if (i + 2 < instr_count) {
+                Instr *c = &instr_list[i + 2];
+                if (c->type == INSTR_INST) {
+                    /* A is used if we see "a," or ",a" or "a\t" */
+                    if (strstr(c->text, ",a") || strstr(c->text, "a,") ||
+                        strstr(c->text, "\ta\n") || strstr(c->text, "\ta,") ||
+                        strstr(c->text, " a,") || strstr(c->text, " a\t"))
+                        a_used = 1;
+                    /* Also bail if next is or/add/sub/and/xor/cp etc
+                     * without explicit operand (implicit A). */
+                    if (strncmp(c->text, "or\t", 3) == 0 ||
+                        strncmp(c->text, "and\t", 4) == 0 ||
+                        strncmp(c->text, "xor\t", 4) == 0 ||
+                        strncmp(c->text, "cp\t", 3) == 0 ||
+                        strncmp(c->text, "add\ta,", 6) == 0 ||
+                        strncmp(c->text, "sub\t", 4) == 0 ||
+                        strncmp(c->text, "adc\t", 4) == 0 ||
+                        strncmp(c->text, "sbc\ta,", 6) == 0 ||
+                        strncmp(c->text, "inc\ta", 5) == 0 ||
+                        strncmp(c->text, "dec\ta", 5) == 0)
+                        a_used = 1;
+                }
+            }
+            if (!a_used) {
+                /* Build "ld <R>,(SRC)" from a's "ld a,(SRC)" and b's R */
+                char buf[INSTR_BUF];
+                char r = a->text[3];
+                /* a->text = "ld\ta,(..." — offset 5 is '('. Build
+                 * "ld\t<r>,(..." */
+                (void)r; /* we pull R from b->text[3] */
+                snprintf(buf, sizeof(buf), "ld\t%c,%s",
+                         b->text[3], a->text + 5);
+                snprintf(a->text, INSTR_BUF, "%s", buf);
+                for (j = i + 1; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                continue;
+            }
+        }
+
         /* ld X,a / ld a,X → remove ld a,X (redundant reload; X = 8-bit reg).
          * Covers l↔a, e↔a, d↔a, h↔a, b↔a, c↔a. The second instruction
          * loads same value back into A. */
