@@ -2337,9 +2337,39 @@ static void ct_emit_node(Cc2State *cc, int idx)
 
 /* Attempt to emit a single statement from the tree. Returns 1 if
  * successfully emitted, 0 if fallback required. */
+/* Decide whether tree emission is worthwhile for this statement.
+ * Current policy: only for CT_ASSIGN with reorder potential (RHS has
+ * call, LHS needs HL). Other patterns go straight to streaming which
+ * is more mature. As ct_emit_node coverage grows, expand this. */
+static int ct_stmt_worth_tree_emit(int stmt_idx)
+{
+    if (stmt_idx < 0 || stmt_idx >= ct_stmt_count) return 0;
+    CTStmt *s = &ct_stmts[stmt_idx];
+    if (s->kind != 'e' || s->root < 0) return 0;
+
+    CTNode *r = &ct_nodes[s->root];
+    if (r->kind != CT_ASSIGN) return 0;
+
+    /* Check RHS has a call AND LHS needs HL (address computation). */
+    int rhs = r->right;
+    int lhs = r->left;
+    if (rhs < 0 || lhs < 0) return 0;
+
+    if (!ct_subtree_has_call_local(rhs)) return 0;
+
+    CTNode *ln = &ct_nodes[lhs];
+    if (ln->kind != CT_DEREF && ln->kind != CT_SUBSCR &&
+        !(ln->kind == CT_UNARY && ln->op == '\''))
+        return 0;
+
+    return 1;
+}
+
 static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
 {
     if (stmt_idx < 0 || stmt_idx >= ct_stmt_count) return 0;
+    if (!ct_stmt_worth_tree_emit(stmt_idx)) return 0;
+
     CTStmt *s = &ct_stmts[stmt_idx];
     ct_fallback = 0;
     int saved_vsp = vsp;
