@@ -1,0 +1,138 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+V7	C	#42
+Gline	V7
+Gsp	I
+V8	I	#40
+Gstack	V8
+Gpos	I
+Gnum	I
+Xis_digit	I	F	E
+P9	I
+{
+	yI	P9	#48	IC	]I	P9	#57	IC	[I	m	#1	#0	?I
+}
+Xpush	C	F	E
+P10	I
+{
+	j	L11	Gsp	#40	<I	n
+	Gstack	Gsp	#1	;+I	RI	#I	*R	'	P10	:I
+	j	L12
+L11
+	Xcputs	"83,116,97,99,107,32,102,117,108,108,10,0"	a	pR	cC	F1
+L12
+}
+Xpop	I	F	E
+{
+	j	L13	Gsp	#0	>I	n
+	yI	Gstack	Gsp	#1	:-I	RI	#I	*R	'
+L13
+	Xcputs	"83,116,97,99,107,32,101,109,112,116,121,10,0"	a	pR	cC	F1
+	yI	#0
+}
+Xtop	I	F	E
+{
+	j	L14	Gsp	#0	>I	n
+	yI	Gstack	Gsp	#1	-I	RI	#I	*R	'
+L14
+	yI	#0
+}
+Xread_op	I	F	E
+{
+A15	I
+A16	R
+	j	L17	Gpos	#0	=I	n
+	Gline	#0	RI	#C	*R	'	#40	CI	:C
+	Gline	#1	RI	#C	*R	'	#0	CI	:C
+	A16	Xcgets	Gline	a	pR	cR	F1	:R
+	j	L18	A16	#0	RI	=R	n
+	yI	#0
+L18
+L17
+	d
+	j	L20	Gline	Gpos	#2	+I	RI	#C	*R	'	#32	=C	Gline	Gpos	#2	+I	RI	#C	*R	'	#9	=C	s	n
+	Gpos	#1	;+I
+L19
+	b
+L20
+	j	L21	Gline	Gpos	#2	+I	RI	#C	*R	'	#0	=C	n
+	Gpos	#0	:I
+	yI	#10	IC
+L21
+	A15	Gline	Gpos	#2	+I	RI	#C	*R	'	IC	:I
+	j	L22	Xis_digit	A15	pI	cI	F1	#0	!I	n	n
+	Gpos	#1	;+I
+	yI	A15
+L22
+	Gnum	#0	:I
+	d
+	j	L24	Xis_digit	Gline	Gpos	#2	+I	RI	#C	*R	'	pC	cI	F1	#0	!I	n
+	Gnum	Gnum	#10	*I	Gline	Gpos	#2	+I	RI	#C	*R	'	#48	-C	IC	+I	:I
+	Gpos	#1	;+I
+L23
+	b
+L24
+	yI	#48	IC
+}
+Xmain	C	F	E
+{
+A25	I
+A26	I
+	Xcputs	"82,80,78,32,99,97,108,99,117,108,97,116,111,114,32,40,39,46,39,32,116,111,32,101,120,105,116,41,10,0"	a	pR	cC	F1
+	Gsp	#0	:I
+	Gpos	#0	:I
+	d
+	j	L28	A25	Xread_op	cI	F0	:I	#0	!I	n
+	j	L30
+L31
+	Xpush	Gnum	pI	cC	F1
+	j	L29
+L32
+	Xpush	Xpop	cI	F0	Xpop	cI	F0	+I	pI	cC	F1
+	j	L29
+L33
+	Xpush	Xpop	cI	F0	Xpop	cI	F0	*I	pI	cC	F1
+	j	L29
+L34
+	A26	Xpop	cI	F0	:I
+	Xpush	Xpop	cI	F0	A26	-I	pI	cC	F1
+	j	L29
+L35
+	A26	Xpop	cI	F0	:I
+	j	L36	A26	#0	=I	n
+	Xcputs	"68,105,118,105,100,101,32,98,121,32,122,101,114,111,10,0"	a	pR	cC	F1
+	j	L37
+L36
+	Xpush	Xpop	cI	F0	A26	/I	pI	cC	F1
+L37
+	j	L29
+L38
+	y
+L39
+	Xcprintf	"61,61,62,32,37,100,10,0"	a	pR	Xtop	cI	F0	pI	cI	U2
+	j	L29
+L40
+	Xcprintf	"85,110,107,110,111,119,110,32,116,111,107,101,110,58,32,37,99,10,0"	a	pR	A25	pI	cI	U2
+	j	L29
+	j	L29
+L30
+	eI	A25
+	w	L31	#48
+	w	L32	#43
+	w	L33	#42
+	w	L34	#45
+	w	L35	#47
+	w	L38	#46
+	w	L39	#10
+	f	L40
+L29
+L27
+	b
+L28
+}
