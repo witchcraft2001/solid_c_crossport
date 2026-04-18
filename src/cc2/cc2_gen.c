@@ -756,6 +756,32 @@ static const char A6225_T_RRCA[]         = "Nrrca";
 static const char A6225_T_XOR_A[]        = "Nxor\ta";
 
 /* Peephole optimizer: remove redundant instruction sequences */
+/* Check whether a given label name is referenced by any jp/jr/call
+ * in the current instr_list (other than its own definition). */
+static int peephole_label_referenced(const char *label_name)
+{
+    int k;
+    for (k = 0; k < instr_count; k++) {
+        Instr *ins = &instr_list[k];
+        if (ins->type != INSTR_INST) continue;
+        if (strstr(ins->text, label_name) != NULL) {
+            /* Rough check — verify it's actually a label ref */
+            const char *p = strstr(ins->text, label_name);
+            /* Must be a full word: preceded by ',' or tab, followed by
+             * end/whitespace/nothing (no trailing digits). */
+            char prev = (p > ins->text) ? p[-1] : ' ';
+            size_t len = strlen(label_name);
+            char next = p[len];
+            if ((prev == ',' || prev == '\t' || prev == ' ') &&
+                (next == '\0' || next == ' ' || next == '\t' ||
+                 next == ',' || next == '\n')) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static void peephole_optimize(void)
 {
     int i, j;
@@ -774,6 +800,21 @@ static void peephole_optimize(void)
             instr_count -= 2;
             i--; /* re-check at this position */
             continue;
+        }
+
+        /* @N: / @M: → remove @N: if not referenced (dead label before
+         * another label). Common when our switch code emits redundant
+         * labels that no jump targets. */
+        if (a->type == INSTR_LABEL && b->type == INSTR_LABEL) {
+            char label_ref[40];
+            snprintf(label_ref, sizeof(label_ref), "%s", a->text);
+            if (!peephole_label_referenced(label_ref)) {
+                for (j = i; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
         }
 
         /* ld l,a / ld a,l → remove ld a,l (redundant reload) */
