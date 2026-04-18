@@ -5360,7 +5360,7 @@ static void parse_function_body(Cc2State *cc)
 
             if (ch == 'e') {
                 /* Switch expression — port of A0D91 in CCC.ASM.
-                 * TMC: e<type>\t<expr>    (type = C/I/N, expr = G<name>/A<n>/P<n>)
+                 * TMC: e<type>\t<expr>   (type C/I/N; expr = G/A/P/X... F)
                  * Emits: load switch expression into A (for char) or HL (for int). */
                 int etype = tmc_read_char(cc);
                 tmc_expect_tab(cc);
@@ -5389,7 +5389,6 @@ static void parse_function_body(Cc2State *cc)
                             if (lv->reg == VK_A) {
                                 /* already in A */
                             } else if (lv->reg != VK_NONE) {
-                                /* reg-allocated — ld a,<low reg> */
                                 const char *reg_low = "e";
                                 if (lv->reg == VK_BC) reg_low = "c";
                                 else if (lv->reg == VK_HL) reg_low = "l";
@@ -5413,6 +5412,28 @@ static void parse_function_body(Cc2State *cc)
                                 snprintf(buf, sizeof(buf), "h,(ix%+d)", lv->ix_offset + 1);
                                 emit_instr(cc, "ld", buf);
                             }
+                        }
+                    }
+                } else if (echar == 'X') {
+                    /* Complex switch expression — function call.
+                     * Push back X and use gen_expr_stmt's machinery to
+                     * evaluate. Result ends up in A (char) or HL (int). */
+                    tmc_pushback(cc, echar);
+                    /* parse_func_call reads until newline, leaves result in HL */
+                    if (func_is_simple) {
+                        char func_name[128];
+                        tmc_read_char(cc); /* consume X */
+                        tmc_read_token(cc, func_name, sizeof(func_name));
+                        parse_func_call(cc, func_name);
+                        if (etype == 'C') emit_instr(cc, "ld", "a,l");
+                    } else {
+                        gen_expr_stmt(cc);
+                        /* Result is on vstack top; ensure in A or HL */
+                        if (vsp > 0) {
+                            VVal *r = &vstack[vsp - 1];
+                            if (etype == 'C') gen_load_a(cc, r);
+                            else gen_load_hl(cc, r);
+                            vsp--;
                         }
                     }
                 } else {
