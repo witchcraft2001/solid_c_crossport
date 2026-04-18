@@ -3861,6 +3861,25 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "add", "hl,bc");
                         vpush(VK_HL, NULL, 0, type);
                         break;
+                    } else if (mul_val == 7 && var_op) {
+                        /* *7 = *4 + *2 + *1, ported from ref BENCH rc4:
+                         *   ld c,l; ld b,h     ; BC = x
+                         *   add hl,hl          ; HL = x*2
+                         *   ld e,l; ld d,h     ; DE = x*2
+                         *   add hl,hl          ; HL = x*4
+                         *   add hl,bc          ; HL = x*5
+                         *   add hl,de          ; HL = x*7 */
+                        gen_load_hl(cc, var_op);
+                        emit_instr(cc, "ld", "c,l");
+                        emit_instr(cc, "ld", "b,h");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "ld", "e,l");
+                        emit_instr(cc, "ld", "d,h");
+                        emit_instr(cc, "add", "hl,hl");
+                        emit_instr(cc, "add", "hl,bc");
+                        emit_instr(cc, "add", "hl,de");
+                        vpush(VK_HL, NULL, 0, type);
+                        break;
                     }
 
                     /* General case: HL * DE → call ?mulhd (commutative) */
