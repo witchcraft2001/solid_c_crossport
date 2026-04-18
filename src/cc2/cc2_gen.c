@@ -5358,6 +5358,107 @@ static void parse_function_body(Cc2State *cc)
                 continue;
             }
 
+            if (ch == 'e') {
+                /* Switch expression — port of A0D91 in CCC.ASM.
+                 * TMC: e<type>\t<expr>    (type = C/I/N, expr = G<name>/A<n>/P<n>)
+                 * Emits: load switch expression into A (for char) or HL (for int). */
+                int etype = tmc_read_char(cc);
+                tmc_expect_tab(cc);
+                int echar = tmc_read_char(cc);
+                if (echar == 'G') {
+                    char gname[128];
+                    tmc_read_token(cc, gname, sizeof(gname));
+                    char asmn[128];
+                    make_asm_name(gname, asmn, sizeof(asmn));
+                    char buf[128];
+                    if (etype == 'C') {
+                        snprintf(buf, sizeof(buf), "a,(%s)", asmn);
+                        emit_instr(cc, "ld", buf);
+                    } else {
+                        snprintf(buf, sizeof(buf), "hl,(%s)", asmn);
+                        emit_instr(cc, "ld", buf);
+                    }
+                    tmc_skip_line(cc);
+                } else if (echar == 'A' || echar == 'P') {
+                    int id = tmc_read_number(cc);
+                    LocalVar *lv = find_local(id);
+                    tmc_skip_line(cc);
+                    if (lv) {
+                        char buf[128];
+                        if (etype == 'C') {
+                            if (lv->reg == VK_A) {
+                                /* already in A */
+                            } else if (lv->reg != VK_NONE) {
+                                /* reg-allocated — ld a,<low reg> */
+                                const char *reg_low = "e";
+                                if (lv->reg == VK_BC) reg_low = "c";
+                                else if (lv->reg == VK_HL) reg_low = "l";
+                                snprintf(buf, sizeof(buf), "a,%s", reg_low);
+                                emit_instr(cc, "ld", buf);
+                            } else {
+                                snprintf(buf, sizeof(buf), "a,(ix%+d)", lv->ix_offset);
+                                emit_instr(cc, "ld", buf);
+                            }
+                        } else {
+                            if (lv->reg == VK_HL) {
+                                /* already in HL */
+                            } else if (lv->reg == VK_DE) {
+                                emit_instr(cc, "ex", "de,hl");
+                            } else if (lv->reg == VK_BC) {
+                                emit_instr(cc, "ld", "l,c");
+                                emit_instr(cc, "ld", "h,b");
+                            } else {
+                                snprintf(buf, sizeof(buf), "l,(ix%+d)", lv->ix_offset);
+                                emit_instr(cc, "ld", buf);
+                                snprintf(buf, sizeof(buf), "h,(ix%+d)", lv->ix_offset + 1);
+                                emit_instr(cc, "ld", buf);
+                            }
+                        }
+                    }
+                } else {
+                    tmc_skip_line(cc);
+                }
+                continue;
+            }
+
+            if (ch == 'w') {
+                /* Switch case entry — port of A0DB7 in CCC.ASM.
+                 * TMC: w\tL<n>\t#<val>
+                 * Emits: cp <val>; jp z,@<label(L<n>)> */
+                tmc_expect_tab(cc);
+                int dch = tmc_read_char(cc);
+                if (dch != 'L') { tmc_skip_line(cc); continue; }
+                int tmc_label = tmc_read_number(cc);
+                int target = get_label(cc, tmc_label);
+                tmc_expect_tab(cc);
+                dch = tmc_read_char(cc);
+                if (dch != '#') { tmc_skip_line(cc); continue; }
+                int cval = tmc_read_number(cc);
+                tmc_skip_line(cc);
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%d", cval & 0xFF);
+                emit_instr(cc, "cp", buf);
+                snprintf(buf, sizeof(buf), "z,@%d", target);
+                emit_instr(cc, "jp", buf);
+                continue;
+            }
+
+            if (ch == 'f') {
+                /* Switch default — port of A0E41 in CCC.ASM.
+                 * TMC: f\tL<n>
+                 * Emits: jp @<label(L<n>)> */
+                tmc_expect_tab(cc);
+                int dch = tmc_read_char(cc);
+                if (dch != 'L') { tmc_skip_line(cc); continue; }
+                int tmc_label = tmc_read_number(cc);
+                int target = get_label(cc, tmc_label);
+                tmc_skip_line(cc);
+                char buf[32];
+                snprintf(buf, sizeof(buf), "@%d", target);
+                emit_instr(cc, "jp", buf);
+                continue;
+            }
+
             /* Expression statement: starts with A<n>, G<name>, etc. */
             tmc_pushback(cc, ch);
             gen_expr_stmt(cc);
