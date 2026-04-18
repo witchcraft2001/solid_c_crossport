@@ -2186,6 +2186,89 @@ static void ct_emit_node(Cc2State *cc, int idx)
         }
         break;
     }
+    case CT_DEREF:
+    case CT_UNARY: {
+        /* Unary op. For ' (deref), emit load of address into HL. */
+        if (n->op == '\'' || n->kind == CT_DEREF) {
+            ct_emit_node(cc, n->left);
+            if (ct_fallback) break;
+            VVal *top = vtop();
+            if (!top) { ct_fallback = 1; break; }
+            if (top->kind == VK_ADDR_HL) {
+                /* already an address in HL */
+            } else if (top->kind == VK_GLOBAL && !top->is_addr) {
+                char buf[128];
+                snprintf(buf, sizeof(buf), "hl,(%s)", top->sym);
+                emit_instr(cc, "ld", buf);
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else if (top->kind == VK_LOCAL && !top->is_addr) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "l,(ix%+d)", top->value);
+                emit_instr(cc, "ld", buf);
+                snprintf(buf, sizeof(buf), "h,(ix%+d)", top->value + 1);
+                emit_instr(cc, "ld", buf);
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else {
+                top->is_addr = 1;
+            }
+        } else {
+            ct_fallback = 1;
+        }
+        break;
+    }
+    case CT_SUBSCR: {
+        /* Array subscript: left=base, right=index. Computes base + index*size.
+         * For simple globals, emit: ld hl,(base); ld de,(index); add hl,hl; add hl,de
+         * For 2-byte element (most common int/ptr), size=2. */
+        int base = n->left;
+        int idx = n->right;
+        if (base < 0 || idx < 0) { ct_fallback = 1; break; }
+        CTNode *bn = &ct_nodes[base];
+        CTNode *in = &ct_nodes[idx];
+
+        /* Only handle simple global array + global/const index for now */
+        if (bn->kind == CT_GLOBAL) {
+            /* Base is array address */
+            if (in->kind == CT_GLOBAL) {
+                /* index is global, load into HL, shift, add base */
+                char buf[128];
+                snprintf(buf, sizeof(buf), "hl,(%s)", in->sym);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,hl"); /* *2 */
+                snprintf(buf, sizeof(buf), "bc,%s", bn->sym);
+                char asmn[128];
+                make_asm_name(bn->sym, asmn, sizeof(asmn));
+                snprintf(buf, sizeof(buf), "bc,%s", asmn);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,bc");
+                vpush(VK_ADDR_HL, NULL, 0, n->type);
+                /* Register extrn if needed */
+                int found = 0, j;
+                for (j = 0; j < decl_count; j++)
+                    if (strcmp(decl_list[j].name, asmn) == 0) { found = 1; break; }
+                if (!found) decl_add(asmn, 0);
+                char iasmn[128];
+                make_asm_name(in->sym, iasmn, sizeof(iasmn));
+                found = 0;
+                for (j = 0; j < decl_count; j++)
+                    if (strcmp(decl_list[j].name, iasmn) == 0) { found = 1; break; }
+                if (!found) decl_add(iasmn, 0);
+            } else {
+                ct_fallback = 1;
+            }
+        } else {
+            ct_fallback = 1;
+        }
+        break;
+    }
+    case CT_CALL: {
+        /* Function call — delegate to parse_func_call? But parse_func_call
+         * reads TMC and we have tree. For now, fallback. */
+        ct_fallback = 1;
+        break;
+    }
     case CT_ASSIGN: {
         /* KEY REORDERING: evaluate RHS (right) first if it contains
          * a call — this is the critical fix for Mass[i] = rand() / K
