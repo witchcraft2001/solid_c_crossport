@@ -2227,9 +2227,11 @@ partial:
         for (i = 0; i < local_count; i++)
             locals[i].reg = VK_NONE;
 
-        /* Find the most-used scalar auto variable → assign to DE */
+        /* Find the most-used scalar auto variable → assign to DE.
+         * Use code tree analysis (ct_vars) for scoring if available,
+         * falling back to text-based var_usage. */
         int best_idx = -1;
-        int best_count = 0;
+        int best_score = 0;
         for (i = 0; i < local_count; i++) {
             if (locals[i].prefix != 'A') continue;
             if (locals[i].size > 2) continue;
@@ -2237,8 +2239,18 @@ partial:
             VarUsage *vu = find_var_usage(locals[i].id);
             if (!vu || vu->count == 0) continue;
             if (vu->addr_taken) continue;
-            if (vu->count > best_count) {
-                best_count = vu->count;
+
+            /* Score: use tree analysis for loop-weighted scoring */
+            int score = vu->count;
+            {
+                CTVarInfo *cv = ct_find_var(locals[i].id);
+                if (cv) {
+                    /* Weight loop references more heavily */
+                    score = cv->total_refs + cv->loop_refs * 3;
+                }
+            }
+            if (score > best_score) {
+                best_score = score;
                 best_idx = i;
             }
         }
@@ -3278,7 +3290,9 @@ static int eval_one_token(Cc2State *cc, int first, const char *tok)
             } else if (top->kind == VK_DE && !top->is_addr &&
                        top->type == 'R') {
                 /* Pointer in DE (register-allocated R-type auto) —
-                 * transfer to HL for indirect memory access. */
+                 * transfer to HL for indirect memory access. Needed for
+                 * LZH3's *A7++ = val pattern where A7 is register-
+                 * allocated pointer. */
                 emit_instr(cc, "ex", "de,hl");
                 vsp--;
                 vpush(VK_ADDR_HL, NULL, 0, top->type);
