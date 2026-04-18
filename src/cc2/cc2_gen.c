@@ -4102,6 +4102,15 @@ static void gen_expr_stmt(Cc2State *cc)
                         gen_load_hl(cc, top); vsp--;
                         emit_instr(cc, "ld", "a,l");
                         vpush(VK_A, NULL, 0, 'C');
+                    } else if (top->kind == VK_LOCAL && top->type == 'C') {
+                        /* Char-typed struct member access at ix+offset:
+                         * read just the byte, not a word */
+                        char buf[32];
+                        int ioff = top->value;
+                        vsp--;
+                        snprintf(buf, sizeof(buf), "a,(ix%+d)", ioff);
+                        emit_instr(cc, "ld", buf);
+                        vpush(VK_A, NULL, 0, 'C');
                     } else if (top->kind != VK_A) {
                         gen_load_hl(cc, top); vsp--;
                         emit_instr(cc, "ld", "a,l");
