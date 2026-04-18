@@ -3015,6 +3015,7 @@ static int eval_one_token(Cc2State *cc, int first, const char *tok)
         /* Dereference pointer or address-of array.
          * For VK_GLOBAL (pointer variable): load pointer → VK_ADDR_HL.
          * For VK_LOCAL (pointer variable): load pointer → VK_ADDR_HL.
+         * For register-allocated pointer (DE/BC): transfer to HL → VK_ADDR_HL.
          * For arrays/other: mark as address. */
         VVal *top = vtop();
         if (top) {
@@ -3032,6 +3033,23 @@ static int eval_one_token(Cc2State *cc, int first, const char *tok)
                 emit_instr(cc, "ld", buf);
                 snprintf(buf, sizeof(buf), "h,(ix%+d)", top->value + 1);
                 emit_instr(cc, "ld", buf);
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else if (top->kind == VK_DE && !top->is_addr &&
+                       top->type == 'R') {
+                /* Pointer in DE (register-allocated R-type auto) —
+                 * transfer to HL for indirect memory access. */
+                emit_instr(cc, "ex", "de,hl");
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else if (top->kind == VK_BC && !top->is_addr &&
+                       top->type == 'R') {
+                emit_instr(cc, "ld", "l,c");
+                emit_instr(cc, "ld", "h,b");
+                vsp--;
+                vpush(VK_ADDR_HL, NULL, 0, top->type);
+            } else if (top->kind == VK_HL && !top->is_addr &&
+                       top->type == 'R') {
                 vsp--;
                 vpush(VK_ADDR_HL, NULL, 0, top->type);
             } else {
@@ -4337,13 +4355,17 @@ static void gen_expr_stmt(Cc2State *cc)
                     }
                     gen_store_a(cc, var);
                 } else {
-                    /* Optimized: inc/dec for register-allocated vars */
+                    /* Optimized: inc/dec for register-allocated vars.
+                     * After dec/inc, the result (post-op value) must be
+                     * pushed onto vstack for use by following comparison. */
                     if (var->kind == VK_DE && delta->kind == VK_IMM && delta->value == 1) {
                         emit_instr(cc, op == '+' ? "inc" : "dec", "de");
+                        vpush(VK_DE, NULL, 0, type);
                         break;
                     }
                     if (var->kind == VK_BC && delta->kind == VK_IMM && delta->value == 1) {
                         emit_instr(cc, op == '+' ? "inc" : "dec", "bc");
+                        vpush(VK_BC, NULL, 0, type);
                         break;
                     }
                     gen_load_hl(cc, var);
@@ -4366,6 +4388,7 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "sbc", "hl,de");
                     }
                     gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, type);
                 }
             }
             break;
@@ -5080,6 +5103,83 @@ static void gen_cond_jump(Cc2State *cc)
         case 'a': {
             VVal *top = vtop();
             if (top) top->is_addr = 1;
+            break;
+        }
+        case ';': {
+            /* Compound inc/dec inside conditional jump expression.
+             * Token format: ;<op><type> where op='+'/'-', type='N'/'I'/'C'/'R'.
+             * Mirrors the ;-handler in gen_expr_stmt: decrement/increment
+             * the variable and leave the post-op value on vstack for
+             * the following comparison. Needed for TMC patterns like
+             *   j L A8 #1 ;-I #0 !I n   (while (--A8) ...) */
+            char op = tok[1];
+            char type = tok[2];
+            VVal *delta = vpop();
+            VVal *var = vpop();
+            if (var && delta) {
+                if (type == 'C') {
+                    gen_load_a(cc, var);
+                    if (op == '+') {
+                        if (delta->kind == VK_IMM && delta->value == 1)
+                            emit_instr(cc, "inc", "a");
+                        else {
+                            emit_instr(cc, "ld", "e,a");
+                            gen_load_a(cc, delta);
+                            emit_instr(cc, "add", "a,e");
+                        }
+                    } else {
+                        if (delta->kind == VK_IMM && delta->value == 1)
+                            emit_instr(cc, "dec", "a");
+                        else {
+                            emit_instr(cc, "ld", "e,a");
+                            gen_load_a(cc, delta);
+                            emit_instr(cc, "ld", "b,a");
+                            emit_instr(cc, "ld", "a,e");
+                            emit_instr(cc, "sub", "b");
+                        }
+                    }
+                    gen_store_a(cc, var);
+                    vpush(VK_A, NULL, 0, 'C');
+                } else {
+                    /* Register-allocated fast path for ±1 */
+                    if (var->kind == VK_DE &&
+                        delta->kind == VK_IMM && delta->value == 1) {
+                        emit_instr(cc, op == '+' ? "inc" : "dec", "de");
+                        vpush(VK_DE, NULL, 0, type);
+                        break;
+                    }
+                    if (var->kind == VK_BC &&
+                        delta->kind == VK_IMM && delta->value == 1) {
+                        emit_instr(cc, op == '+' ? "inc" : "dec", "bc");
+                        vpush(VK_BC, NULL, 0, type);
+                        break;
+                    }
+                    gen_load_hl(cc, var);
+                    if (op == '+') {
+                        if (delta->kind == VK_IMM && delta->value == 1)
+                            emit_instr(cc, "inc", "hl");
+                        else if (delta->kind == VK_IMM) {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "de,%d",
+                                     delta->value & 0xFFFF);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "add", "hl,de");
+                        }
+                    } else {
+                        if (delta->kind == VK_IMM && delta->value == 1)
+                            emit_instr(cc, "dec", "hl");
+                        else if (delta->kind == VK_IMM) {
+                            int neg = (-delta->value) & 0xFFFF;
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "de,%d", neg);
+                            emit_instr(cc, "ld", buf);
+                            emit_instr(cc, "add", "hl,de");
+                        }
+                    }
+                    gen_store_hl(cc, var);
+                    vpush(VK_HL, NULL, 0, type);
+                }
+            }
             break;
         }
         case 'p': {
