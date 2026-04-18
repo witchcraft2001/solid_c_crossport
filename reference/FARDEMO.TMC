@@ -1,0 +1,207 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gs1	(
+	C	#84
+	C	#104
+	C	#105
+	C	#115
+	C	#32
+	C	#105
+	C	#115
+	C	#32
+	C	#115
+	C	#116
+	C	#114
+	C	#105
+	C	#110
+	C	#103
+	C	#32
+	C	#49
+	C	#46
+	C	#46
+	C	#100
+	C	#117
+	C	#108
+	C	#108
+	C	#32
+	C	#97
+	C	#115
+	C	#32
+	C	#104
+	C	#101
+	C	#108
+	C	#108
+	C	#0
+)
+V7	C	#31
+Gs2	(
+	C	#65
+	C	#66
+	C	#67
+	C	#68
+	C	#69
+	C	#70
+	C	#71
+	C	#72
+	C	#73
+	C	#74
+	C	#75
+	C	#76
+	C	#77
+	C	#78
+	C	#79
+	C	#80
+	C	#81
+	C	#82
+	C	#83
+	C	#84
+	C	#85
+	C	#86
+	C	#87
+	C	#88
+	C	#89
+	C	#90
+	C	#0
+)
+V8	C	#27
+Gs3	(
+	C	#84
+	C	#104
+	C	#101
+	C	#32
+	C	#113
+	C	#117
+	C	#105
+	C	#99
+	C	#107
+	C	#32
+	C	#98
+	C	#114
+	C	#111
+	C	#119
+	C	#110
+	C	#32
+	C	#102
+	C	#111
+	C	#120
+	C	#32
+	C	#0
+)
+V9	C	#21
+Gs4	(
+	C	#106
+	C	#117
+	C	#109
+	C	#112
+	C	#101
+	C	#100
+	C	#32
+	C	#111
+	C	#118
+	C	#101
+	C	#114
+	C	#32
+	C	#116
+	C	#104
+	C	#101
+	C	#32
+	C	#108
+	C	#97
+	C	#122
+	C	#121
+	C	#32
+	C	#100
+	C	#111
+	C	#103
+	C	#0
+)
+V10	C	#25
+V11	C	#256
+Ga	V11
+V12	C	#256
+Gb	V12
+Xmycpy	C	F	E
+P13	R
+P14	R
+{
+	d
+	j	L16	P13	#C	;+R	@	P14	#C	;+R	@	:C	#0	CI	!C	n
+L15
+	b
+L16
+}
+Xmycat	C	F	E
+P17	R
+P18	R
+{
+	d
+	j	L20	P17	@	#0	!C	n
+	P17	#C	;+R
+L19
+	b
+L20
+	d
+	j	L22	P17	#C	;+R	@	P18	#C	;+R	@	:C	#0	CI	!C	n
+L21
+	b
+L22
+}
+Xto_upper	C	F	E
+P23	R
+{
+	d
+	j	L25	P23	@	#0	!C	n
+	j	L26	P23	@	#97	]C	P23	@	#122	[C	m	n
+	P23	@	P23	@	#97	-C	#65	+C	:C
+L26
+	P23	#C	;+R
+L24
+	b
+L25
+}
+Xto_lower	C	F	E
+P27	R
+{
+	d
+	j	L29	P27	@	#0	!C	n
+	j	L30	P27	@	#65	]C	P27	@	#90	[C	m	n
+	P27	@	P27	@	#65	-C	#97	+C	:C
+L30
+	P27	#C	;+R
+L28
+	b
+L29
+}
+Xmain	C	F	E
+{
+	Xcputs	"70,65,82,68,69,77,79,32,115,116,114,105,110,103,32,115,116,114,101,115,115,32,40,83,111,108,105,100,67,45,115,97,102,101,41,10,0"	a	pR	cC	F1
+	Xmycpy	Ga	a	pR	Gs2	a	pR	cC	F2
+	Xcputs	"67,111,112,121,32,49,58,32,0"	a	pR	cC	F1
+	Xcputs	Ga	a	pR	cC	F1
+	Xcputs	"10,0"	a	pR	cC	F1
+	Xmycpy	Ga	a	pR	Gs3	a	pR	cC	F2
+	Xmycat	Ga	a	pR	Gs4	a	pR	cC	F2
+	Xcputs	"67,111,110,99,97,116,58,32,0"	a	pR	cC	F1
+	Xcputs	Ga	a	pR	cC	F1
+	Xcputs	"10,0"	a	pR	cC	F1
+	Xmycpy	Gb	a	pR	Gs1	a	pR	cC	F2
+	Xmycat	Gb	a	pR	"32,58,58,32,0"	a	pR	cC	F2
+	Xmycat	Gb	a	pR	Ga	a	pR	cC	F2
+	Xcputs	"77,101,114,103,101,100,58,32,0"	a	pR	cC	F1
+	Xcputs	Gb	a	pR	cC	F1
+	Xcputs	"10,0"	a	pR	cC	F1
+	Xto_upper	Gb	a	pR	cC	F1
+	Xcputs	"85,112,112,101,114,32,58,32,0"	a	pR	cC	F1
+	Xcputs	Gb	a	pR	cC	F1
+	Xcputs	"10,0"	a	pR	cC	F1
+	Xto_lower	Gb	a	pR	cC	F1
+	Xcputs	"76,111,119,101,114,32,58,32,0"	a	pR	cC	F1
+	Xcputs	Gb	a	pR	cC	F1
+	Xcputs	"10,0"	a	pR	cC	F1
+}

@@ -1,9 +1,6 @@
 @echo off
-SET SRC=STATICS.C
-SET NAME=%SRC:.C=%
-cc1 -m %SRC%
-cc2 %NAME%.tmc
-as %NAME%.asm
-ld %NAME%,clib/l/gXMAIN /x
-del %NAME%.rel
-del %NAME%.asm
+set PROG=STATICS
+cc1 -m %PROG%.C
+cc2 %PROG%.tmc
+as %PROG%.asm
+ld %PROG%,clib/l/gXMAIN /x

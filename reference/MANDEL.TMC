@@ -1,0 +1,77 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gshade	(
+	C	#32
+	C	#46
+	C	#58
+	C	#45
+	C	#61
+	C	#43
+	C	#42
+	C	#35
+	C	#37
+	C	#64
+	C	#0
+)
+V7	C	#11
+Xmain	C	F	E
+{
+A8	I
+A9	I
+A10	I
+A11	I
+A12	I
+A13	I
+A14	I
+A15	I
+A16	I
+A17	I
+	Xcputs	"77,65,78,68,69,76,32,102,105,120,101,100,45,112,111,105,110,116,10,0"	a	pR	cC	F1
+	A9	#0	:I
+	d
+	j	L18	A9	#32	<I	n
+	A11	A9	#3	#256	*I	*I	#32	/I	#3	#256	*I	#2	/I	-I	:I
+	A8	#0	:I
+	d
+	j	L20	A8	#64	<I	n
+	A10	A8	#3	#256	*I	*I	#64	/I	#2	#256	*I	-I	:I
+	A12	#0	:I
+	A13	#0	:I
+	A16	#0	:I
+	d
+	j	L23	A16	#32	<I	n
+	A14	A12	A12	*I	#256	/I	:I
+	A15	A13	A13	*I	#256	/I	:I
+	j	L24	A14	A15	+I	#4	#256	*I	>I	n
+	j	L23
+L24
+	A13	#2	A12	*I	A13	*I	#256	/I	A11	+I	:I
+	A12	A14	A15	-I	A10	+I	:I
+	A16	#1	;+I
+L22
+	b
+L23
+	A17	A16	#9	*I	#32	/I	:I
+	j	L25	A17	#0	<I	n
+	A17	#0	:I
+L25
+	j	L26	A17	#9	>I	n
+	A17	#9	:I
+L26
+	Xputc	Gshade	A17	RI	#C	*R	'	pC	cI	F1
+L21
+	A8	#1	:+I
+	b
+L20
+	Xputc	#10	pC	cI	F1
+L19
+	A9	#1	:+I
+	b
+L18
+}

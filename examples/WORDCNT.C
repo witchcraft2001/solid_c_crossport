@@ -1,46 +1,39 @@
-#include <ctype.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <conio.h>
 
-int main()
+char text[] = "SolidC word count demo.\nThis example avoids stdio headers but still\ntests character classification and counters.\nNumbers: 12345. Symbols: *&^%.\n";
+
+int is_space(ch)
+int ch;
 {
-    char filename[128];
+    return (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f');
+}
+
+void main()
+{
+    int i;
     int lcount, wcount, ccount;
-    int word;
-    int c;
-    FILE *fp;
+    int inword;
+    int ch;
 
-    puts("WORDCNT - enter filename:");
-    if (gets(filename) == NULL || filename[0] == '\0') {
-        puts("No input file.");
-        return 1;
-    }
+    lcount = 0;
+    wcount = 0;
+    ccount = 0;
+    inword = 0;
 
-    fp = fopen(filename, "r");
-    if (fp == NULL) {
-        printf("Cannot open file: %s\n", filename);
-        return 1;
-    }
+    for (i = 0; text[i]; ++i) {
+        ch = text[i];
+        ccount++;
+        if (ch == '\n') lcount++;
 
-    lcount = wcount = ccount = 0;
-    word = 0;
-
-    while ((c = fgetc(fp)) != EOF) {
-        ++ccount;
-
-        if (isspace((unsigned char)c)) {
-            if (word) ++wcount;
-            word = 0;
-            if (c == '\n' || c == '\f' || c == '\r') ++lcount;
+        if (is_space(ch)) {
+            if (inword) wcount++;
+            inword = 0;
         } else {
-            word = 1;
+            inword = 1;
         }
     }
+    if (inword) wcount++;
 
-    if (word) ++wcount;
-    fclose(fp);
-
-    printf("File %s\n", filename);
-    printf("Lines=%d Words=%d Chars=%d\n", lcount, wcount, ccount);
-    return 0;
+    cputs("WORDCNT sample stats\n");
+    cprintf("Lines=%d Words=%d Chars=%d\n", lcount, wcount, ccount);
 }

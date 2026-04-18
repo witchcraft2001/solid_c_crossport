@@ -1,0 +1,142 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Gcube_x	(
+	I	#24	_I
+	I	#24	_I
+	I	#24
+	I	#24
+	I	#24	_I
+	I	#24	_I
+	I	#24
+	I	#24
+)
+V7	I	#8
+Gcube_y	(
+	I	#24	_I
+	I	#24
+	I	#24
+	I	#24	_I
+	I	#24	_I
+	I	#24
+	I	#24
+	I	#24	_I
+)
+V8	I	#8
+Gcube_z	(
+	I	#24	_I
+	I	#24	_I
+	I	#24	_I
+	I	#24	_I
+	I	#24
+	I	#24
+	I	#24
+	I	#24
+)
+V9	I	#8
+Gsin_tab	(
+	I	#0
+	I	#66
+	I	#128
+	I	#181
+	I	#221
+	I	#247
+	I	#256
+	I	#247
+	I	#221
+	I	#181
+	I	#128
+	I	#66
+	I	#0
+	I	#66	_I
+	I	#128	_I
+	I	#181	_I
+	I	#221	_I
+	I	#247	_I
+	I	#256	_I
+	I	#247	_I
+	I	#221	_I
+	I	#181	_I
+	I	#128	_I
+	I	#66	_I
+)
+V10	I	#24
+Gcos_tab	(
+	I	#256
+	I	#247
+	I	#221
+	I	#181
+	I	#128
+	I	#66
+	I	#0
+	I	#66	_I
+	I	#128	_I
+	I	#181	_I
+	I	#221	_I
+	I	#247	_I
+	I	#256	_I
+	I	#247	_I
+	I	#221	_I
+	I	#181	_I
+	I	#128	_I
+	I	#66	_I
+	I	#0
+	I	#66
+	I	#128
+	I	#181
+	I	#221
+	I	#247
+)
+V11	I	#24
+Xrotate_point	C	F	E
+P12	I
+P13	I
+P14	I
+P15	I
+P16	R
+P17	R
+{
+A18	I
+A19	I
+A20	I
+A21	I
+A22	I
+	A18	Gcos_tab	P15	#24	%I	RI	#I	*R	'	:I
+	A19	Gsin_tab	P15	#24	%I	RI	#I	*R	'	:I
+	A20	P12	:I
+	A21	P13	A18	*I	P14	A19	*I	-I	#256	/I	:I
+	A22	P13	A19	*I	P14	A18	*I	+I	#256	/I	:I
+	P16	@	A20	A22	#2	/I	+I	:I
+	P17	@	A21	A22	#4	/I	+I	:I
+}
+Xmain	C	F	E
+{
+A23	I
+A24	I
+A25	I
+A26	I
+	Xcputs	"67,85,66,69,32,112,114,111,106,101,99,116,105,111,110,32,40,116,101,120,116,41,10,0"	a	pR	cC	F1
+	A23	#0	:I
+	d
+	j	L27	A23	#12	<I	n
+	Xcprintf	"70,114,97,109,101,32,37,100,10,0"	a	pR	A23	pI	cI	U2
+	A24	#0	:I
+	d
+	j	L29	A24	#8	<I	n
+	Xrotate_point	Gcube_x	A24	RI	#I	*R	'	pI	Gcube_y	A24	RI	#I	*R	'	pI	Gcube_z	A24	RI	#I	*R	'	pI	A23	pI	A25	a	pR	A26	a	pR	cC	F6
+	Xcprintf	"86,37,117,58,32,37,100,32,37,100,10,0"	a	pR	A24	pI	A25	pI	A26	pI	cI	U4
+L30
+	A24	#1	:+I
+	b
+L29
+	Xcputs	"10,0"	a	pR	cC	F1
+L28
+	A23	#1	:+I
+	b
+L27
+}

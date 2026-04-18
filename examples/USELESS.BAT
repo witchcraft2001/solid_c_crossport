@@ -1,5 +1,5 @@
 @echo off
-set PROG=DSTAR
+set PROG=USELESS
 cc1 -m %PROG%.C
 cc2 %PROG%.tmc
 as %PROG%.asm

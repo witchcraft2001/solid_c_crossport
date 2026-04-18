@@ -1,0 +1,187 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+V7	C	#144
+Gboard	V7
+Gball_pos	I
+Gbox_pos	I
+Gmode_box	I
+Xinit_level	C	F	E
+{
+A8	I
+A9	I
+A10	I
+	A9	#0	:I
+	d
+	j	L11	A9	#12	<I	n
+	A8	#0	:I
+	d
+	j	L13	A8	#12	<I	n
+	A10	A9	#12	*I	A8	+I	:I
+	j	L15	A8	#0	=I	A9	#0	=I	s	A8	#12	#1	-I	=I	s	A9	#12	#1	-I	=I	s	n
+	Gboard	A10	RI	#C	*R	'	#35	:C
+	j	L16
+L15
+	Gboard	A10	RI	#C	*R	'	#46	:C
+L16
+L14
+	A8	#1	:+I
+	b
+L13
+L12
+	A9	#1	:+I
+	b
+L11
+	Gboard	#3	#12	*I	#3	+I	RI	#C	*R	'	#42	:C
+	Gboard	#3	#12	*I	#8	+I	RI	#C	*R	'	#42	:C
+	Gboard	#8	#12	*I	#2	+I	RI	#C	*R	'	#42	:C
+	Gboard	#8	#12	*I	#9	+I	RI	#C	*R	'	#42	:C
+	Gboard	#5	#12	*I	#6	+I	RI	#C	*R	'	#42	:C
+	Gball_pos	#1	#12	*I	#1	+I	:I
+	Gbox_pos	#10	#12	*I	#10	+I	:I
+}
+Xremaining_gems	I	F	E
+{
+A17	I
+A18	I
+	A18	#0	:I
+	A17	#0	:I
+	d
+	j	L19	A17	#12	#12	*I	<I	n
+	j	L21	Gboard	A17	RI	#C	*R	'	#42	=C	n
+	A18	#1	;+I
+L21
+L20
+	A17	#1	:+I
+	b
+L19
+	yI	A18
+}
+Xdraw_board	C	F	E
+{
+A22	I
+A23	I
+A24	I
+	Xputc	#10	pC	cI	F1
+	A23	#0	:I
+	d
+	j	L25	A23	#12	<I	n
+	A22	#0	:I
+	d
+	j	L27	A22	#12	<I	n
+	A24	A23	#12	*I	A22	+I	:I
+	j	L29	A24	Gball_pos	=I	n
+	Xputc	#111	pC	cI	F1
+	j	L30
+L29
+	j	L31	A24	Gbox_pos	=I	n
+	Xputc	#88	pC	cI	F1
+	j	L32
+L31
+	Xputc	Gboard	A24	RI	#C	*R	'	pC	cI	F1
+L32
+L30
+L28
+	A22	#1	:+I
+	b
+L27
+	Xputc	#10	pC	cI	F1
+L26
+	A23	#1	:+I
+	b
+L25
+	Xcprintf	"71,101,109,115,32,108,101,102,116,58,32,37,100,10,0"	a	pR	Xremaining_gems	cI	F0	pI	cI	U2
+	Xcprintf	"77,111,100,101,58,32,37,115,10,0"	a	pR	Gmode_box	#0	!I	"66,79,88,0"	a	"66,65,76,76,0"	a	?R	pR	cI	U2
+	Xcputs	"77,111,118,101,58,32,87,65,83,68,44,32,115,112,97,99,101,61,115,119,105,116,99,104,44,32,114,61,114,101,115,101,116,44,32,113,61,113,117,105,116,10,0"	a	pR	cC	F1
+}
+Xcan_enter	I	F	E
+P33	I
+P34	I
+{
+	j	L35	Gboard	P33	RI	#C	*R	'	#35	=C	n
+	yI	#0
+L35
+	j	L36	P34	#0	!I	n	Gboard	P33	RI	#C	*R	'	#42	=C	m	n
+	yI	#0
+L36
+	yI	#1
+}
+Xslide	C	F	E
+P37	I
+{
+A38	R
+A39	I
+A40	I
+A41	I
+	A38	Gmode_box	#0	!I	Gbox_pos	a	Gball_pos	a	?R	:R
+	A39	Gmode_box	#0	!I	#0	#1	?I	:I
+	d
+	j	L43	#1	#0	!I	n
+	A40	A38	@	:I
+	A41	A40	P37	+I	:I
+	j	L44	Xcan_enter	A41	pI	A39	pI	cI	F2	#0	!I	n	n
+	j	L43
+L44
+	j	L45	A41	Gmode_box	#0	!I	Gball_pos	Gbox_pos	?I	=I	n
+	j	L43
+L45
+	A38	@	A41	:I
+	j	L46	A39	#0	!I	Gboard	A41	RI	#C	*R	'	#42	=C	m	n
+	Gboard	A41	RI	#C	*R	'	#46	:C
+L46
+L42
+	b
+L43
+}
+Xmain	C	F	E
+{
+A47	I
+	Xinit_level	cC	F0
+	Gmode_box	#0	:I
+	d
+	j	L49	#1	#0	!I	n
+	Xdraw_board	cC	F0
+	j	L50	Xremaining_gems	cI	F0	#0	=I	n
+	Xcputs	"89,111,117,32,119,105,110,33,10,0"	a	pR	cC	F1
+	y
+L50
+	A47	Xgetc	cI	F0	:I
+	j	L51	A47	#113	IC	=I	A47	#81	IC	=I	s	n
+	y
+L51
+	j	L52	A47	#114	IC	=I	A47	#82	IC	=I	s	n
+	Xinit_level	cC	F0
+	Gmode_box	#0	:I
+	j	L48
+L52
+	j	L53	A47	#32	IC	=I	n
+	Gmode_box	#1	:^I
+	j	L48
+L53
+	j	L54	A47	#119	IC	=I	A47	#87	IC	=I	s	n
+	Xslide	#12	_I	pI	cC	F1
+	j	L55
+L54
+	j	L56	A47	#115	IC	=I	A47	#83	IC	=I	s	n
+	Xslide	#12	pI	cC	F1
+	j	L57
+L56
+	j	L58	A47	#97	IC	=I	A47	#65	IC	=I	s	n
+	Xslide	#1	_I	pI	cC	F1
+	j	L59
+L58
+	j	L60	A47	#100	IC	=I	A47	#68	IC	=I	s	n
+	Xslide	#1	pI	cC	F1
+L60
+L59
+L57
+L55
+L48
+	b
+L49
+}

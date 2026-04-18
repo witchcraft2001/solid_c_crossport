@@ -1,0 +1,279 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+V7	C	#64
+Gboard	V7
+Xidx	I	F	E
+P8	I
+P9	I
+{
+	yI	P8	#8	*I	P9	+I
+}
+Xinside	I	F	E
+P10	I
+P11	I
+{
+	yI	P10	#0	]I	P10	#8	<I	m	P11	#0	]I	m	P11	#8	<I	m	#1	#0	?I
+}
+Xinit_board	C	F	E
+{
+A12	I
+	A12	#0	:I
+	d
+	j	L13	A12	#64	<I	n
+	Gboard	A12	RI	#C	*R	'	#46	:C
+L14
+	A12	#1	:+I
+	b
+L13
+	Gboard	Xidx	#3	pI	#3	pI	cI	F2	RI	#C	*R	'	#79	:C
+	Gboard	Xidx	#3	pI	#4	pI	cI	F2	RI	#C	*R	'	#42	:C
+	Gboard	Xidx	#4	pI	#3	pI	cI	F2	RI	#C	*R	'	#42	:C
+	Gboard	Xidx	#4	pI	#4	pI	cI	F2	RI	#C	*R	'	#79	:C
+}
+Xprint_board	C	F	E
+{
+A15	I
+A16	I
+	Xcputs	"32,32,49,32,50,32,51,32,52,32,53,32,54,32,55,32,56,10,0"	a	pR	cC	F1
+	A15	#0	:I
+	d
+	j	L17	A15	#8	<I	n
+	Xcprintf	"37,100,32,0"	a	pR	A15	#1	+I	pI	cI	U2
+	A16	#0	:I
+	d
+	j	L19	A16	#8	<I	n
+	Xputc	Gboard	Xidx	A15	pI	A16	pI	cI	F2	RI	#C	*R	'	pC	cI	F1
+	Xputc	#32	pC	cI	F1
+L20
+	A16	#1	:+I
+	b
+L19
+	Xputc	#10	pC	cI	F1
+L18
+	A15	#1	:+I
+	b
+L17
+}
+Xflip_dir	I	F	E
+P21	I
+P22	I
+P23	I
+P24	I
+P25	I
+P26	I
+P27	I
+{
+A28	I
+A29	I
+A30	I
+A31	I
+	A28	P21	P23	+I	:I
+	A29	P22	P24	+I	:I
+	A30	#0	:I
+	d
+	j	L33	Xinside	A28	pI	A29	pI	cI	F2	#0	!I	Gboard	Xidx	A28	pI	A29	pI	cI	F2	RI	#C	*R	'	IC	P26	=I	m	n
+	A30	#1	;+I
+	A28	P23	:+I
+	A29	P24	:+I
+L32
+	b
+L33
+	j	L34	A30	#0	=I	n
+	yI	#0
+L34
+	j	L35	Xinside	A28	pI	A29	pI	cI	F2	#0	!I	n	Gboard	Xidx	A28	pI	A29	pI	cI	F2	RI	#C	*R	'	IC	P25	!I	s	n
+	yI	#0
+L35
+	j	L36	P27	#0	!I	n
+	A28	P21	P23	+I	:I
+	A29	P22	P24	+I	:I
+	A31	#0	:I
+	d
+	j	L37	A31	A30	<I	n
+	Gboard	Xidx	A28	pI	A29	pI	cI	F2	RI	#C	*R	'	P25	CI	:C
+	A28	P23	:+I
+	A29	P24	:+I
+L38
+	A31	#1	:+I
+	b
+L37
+L36
+	yI	A30
+}
+Xapply_move	I	F	E
+P39	I
+P40	I
+P41	I
+P42	I
+P43	I
+{
+A44	I
+	j	L45	Xinside	P39	pI	P40	pI	cI	F2	#0	!I	n	Gboard	Xidx	P39	pI	P40	pI	cI	F2	RI	#C	*R	'	#46	!C	s	n
+	yI	#0
+L45
+	A44	#0	:I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	_I	pI	#1	_I	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	_I	pI	#0	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	_I	pI	#1	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#0	pI	#1	_I	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#0	pI	#1	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	pI	#1	_I	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	pI	#0	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	A44	Xflip_dir	P39	pI	P40	pI	#1	pI	#1	pI	P41	pI	P42	pI	P43	pI	cI	F7	:+I
+	j	L46	A44	#0	>I	P43	#0	!I	m	n
+	Gboard	Xidx	P39	pI	P40	pI	cI	F2	RI	#C	*R	'	P41	CI	:C
+L46
+	yI	A44
+}
+Xhas_move	I	F	E
+P47	I
+P48	I
+{
+A49	I
+A50	I
+	A49	#0	:I
+	d
+	j	L51	A49	#8	<I	n
+	A50	#0	:I
+	d
+	j	L53	A50	#8	<I	n
+	j	L55	Xapply_move	A49	pI	A50	pI	P47	pI	P48	pI	#0	pI	cI	F5	#0	>I	n
+	yI	#1
+L55
+L54
+	A50	#1	:+I
+	b
+L53
+L52
+	A49	#1	:+I
+	b
+L51
+	yI	#0
+}
+Xcount_score	C	F	E
+P56	R
+P57	R
+{
+A58	I
+	P56	@	P57	@	#0	:I	:I
+	A58	#0	:I
+	d
+	j	L59	A58	#64	<I	n
+	j	L61	Gboard	A58	RI	#C	*R	'	#42	=C	n
+	P56	@	#1	;+I
+L61
+	j	L62	Gboard	A58	RI	#C	*R	'	#79	=C	n
+	P57	@	#1	;+I
+L62
+L60
+	A58	#1	:+I
+	b
+L59
+}
+Xai_move	I	F	E
+P63	I
+P64	I
+P65	R
+P66	R
+{
+A67	I
+A68	I
+A69	I
+A70	I
+	A70	#0	:I
+	P65	@	#1	_I	:I
+	P66	@	#1	_I	:I
+	A67	#0	:I
+	d
+	j	L71	A67	#8	<I	n
+	A68	#0	:I
+	d
+	j	L73	A68	#8	<I	n
+	A69	Xapply_move	A67	pI	A68	pI	P63	pI	P64	pI	#0	pI	cI	F5	:I
+	j	L75	A69	A70	>I	n
+	A70	A69	:I
+	P65	@	A67	:I
+	P66	@	A68	:I
+L75
+L74
+	A68	#1	:+I
+	b
+L73
+L72
+	A67	#1	:+I
+	b
+L71
+	yI	A70
+}
+Xmain	C	F	E
+{
+A76	I
+A77	I
+A78	I
+A79	I
+A80	I
+A81	I
+A82	I
+A83	I
+A84	I
+A85	I
+	Xinit_board	cC	F0
+	A76	#42	IC	:I
+	A83	#0	:I
+	Xcputs	"79,84,72,69,76,76,79,32,40,121,111,117,32,97,114,101,32,42,41,10,0"	a	pR	cC	F1
+	d
+	j	L87	#1	#0	!I	n
+	A77	A76	:I
+	A78	A76	#42	IC	=I	#79	#42	?C	IC	:I
+	Xprint_board	cC	F0
+	Xcount_score	A81	a	pR	A82	a	pR	cC	F2
+	Xcprintf	"83,99,111,114,101,32,42,61,37,100,32,79,61,37,100,10,0"	a	pR	A81	pI	A82	pI	cI	U3
+	j	L88	Xhas_move	A77	pI	A78	pI	cI	F2	#0	!I	n	n
+	A83	#1	;+I
+	j	L89	A83	#2	=I	n
+	j	L87
+L89
+	Xcprintf	"37,99,32,112,97,115,115,101,115,10,0"	a	pR	A77	pI	cI	U2
+	A76	A78	:I
+	j	L86
+L88
+	A83	#0	:I
+	j	L90	A76	#42	IC	=I	n
+	Xcputs	"89,111,117,114,32,109,111,118,101,32,114,99,32,40,113,32,116,111,32,113,117,105,116,41,58,32,0"	a	pR	cC	F1
+	A84	Xgetc	cI	F0	:I
+	j	L91	A84	#113	IC	=I	A84	#81	IC	=I	s	n
+	j	L87
+L91
+	A85	Xgetc	cI	F0	:I
+	j	L92	A84	#49	IC	<I	A84	#56	IC	>I	s	A85	#49	IC	<I	s	A85	#56	IC	>I	s	n
+	Xcputs	"66,97,100,32,109,111,118,101,10,0"	a	pR	cC	F1
+	j	L86
+L92
+	A79	A84	#49	IC	-I	:I
+	A80	A85	#49	IC	-I	:I
+	j	L93	Xapply_move	A79	pI	A80	pI	A77	pI	A78	pI	#1	pI	cI	F5	#0	=I	n
+	Xcputs	"73,108,108,101,103,97,108,10,0"	a	pR	cC	F1
+	j	L86
+L93
+	j	L94
+L90
+	Xai_move	A77	pI	A78	pI	A79	a	pR	A80	a	pR	cI	F4
+	j	L95	A79	#0	]I	n
+	Xapply_move	A79	pI	A80	pI	A77	pI	A78	pI	#1	pI	cI	F5
+	Xcprintf	"65,73,58,32,37,100,37,100,10,0"	a	pR	A79	#1	+I	pI	A80	#1	+I	pI	cI	U3
+L95
+L94
+	A76	A78	:I
+L86
+	b
+L87
+	Xcount_score	A81	a	pR	A82	a	pR	cC	F2
+	Xprint_board	cC	F0
+	Xcprintf	"70,105,110,97,108,32,42,61,37,100,32,79,61,37,100,10,0"	a	pR	A81	pI	A82	pI	cI	U3
+}

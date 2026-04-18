@@ -1,0 +1,359 @@
+S1	(
+M2	N
+M3	N
+)
+S4	(
+M5	N
+M6	N
+)
+Grotor	(
+	C	#69
+	C	#75
+	C	#77
+	C	#70
+	C	#76
+	C	#71
+	C	#68
+	C	#81
+	C	#86
+	C	#90
+	C	#78
+	C	#84
+	C	#79
+	C	#87
+	C	#89
+	C	#72
+	C	#88
+	C	#85
+	C	#83
+	C	#80
+	C	#65
+	C	#73
+	C	#66
+	C	#82
+	C	#67
+	C	#74
+	C	#65
+	C	#74
+	C	#68
+	C	#75
+	C	#83
+	C	#73
+	C	#82
+	C	#85
+	C	#88
+	C	#66
+	C	#76
+	C	#72
+	C	#87
+	C	#84
+	C	#77
+	C	#67
+	C	#81
+	C	#71
+	C	#90
+	C	#78
+	C	#80
+	C	#89
+	C	#70
+	C	#86
+	C	#79
+	C	#69
+	C	#66
+	C	#68
+	C	#70
+	C	#72
+	C	#74
+	C	#76
+	C	#67
+	C	#80
+	C	#82
+	C	#84
+	C	#88
+	C	#86
+	C	#90
+	C	#78
+	C	#89
+	C	#69
+	C	#73
+	C	#87
+	C	#71
+	C	#65
+	C	#75
+	C	#77
+	C	#85
+	C	#83
+	C	#81
+	C	#79
+	C	#69
+	C	#83
+	C	#79
+	C	#86
+	C	#80
+	C	#90
+	C	#74
+	C	#65
+	C	#89
+	C	#81
+	C	#85
+	C	#73
+	C	#82
+	C	#72
+	C	#88
+	C	#76
+	C	#78
+	C	#70
+	C	#84
+	C	#71
+	C	#75
+	C	#68
+	C	#67
+	C	#77
+	C	#87
+	C	#66
+	C	#86
+	C	#90
+	C	#66
+	C	#82
+	C	#71
+	C	#73
+	C	#84
+	C	#89
+	C	#85
+	C	#80
+	C	#83
+	C	#68
+	C	#78
+	C	#72
+	C	#76
+	C	#88
+	C	#65
+	C	#87
+	C	#77
+	C	#74
+	C	#81
+	C	#79
+	C	#70
+	C	#69
+	C	#67
+	C	#75
+	C	#0
+)
+V7	C	#131
+Gref	(
+	C	#89
+	C	#82
+	C	#85
+	C	#72
+	C	#81
+	C	#83
+	C	#76
+	C	#68
+	C	#80
+	C	#88
+	C	#78
+	C	#71
+	C	#79
+	C	#75
+	C	#77
+	C	#73
+	C	#69
+	C	#66
+	C	#70
+	C	#90
+	C	#67
+	C	#87
+	C	#86
+	C	#74
+	C	#65
+	C	#84
+	C	#0
+)
+V8	C	#27
+Gnotch	(
+	C	#81
+	C	#69
+	C	#86
+	C	#74
+	C	#90
+	C	#0
+)
+V9	C	#6
+Gorder	(
+	C	#3	CI
+	C	#1	CI
+	C	#2	CI
+)
+V10	C	#3
+Grings	(
+	C	#87
+	C	#88
+	C	#84
+)
+V11	C	#3
+Gpos	(
+	C	#65
+	C	#87
+	C	#69
+)
+V12	C	#3
+Gplug	(
+	C	#65
+	C	#77
+	C	#84
+	C	#69
+	C	#0
+)
+V13	C	#5
+Xalpha	I	F	E
+P14	I
+{
+	yI	P14	#65	IC	]I	P14	#90	IC	[I	m	P14	#97	IC	]I	P14	#122	IC	[I	m	s	#1	#0	?I
+}
+Xupper	I	F	E
+P15	I
+{
+	j	L16	P15	#97	IC	]I	P15	#122	IC	[I	m	n
+	yI	P15	#32	-I
+L16
+	yI	P15
+}
+Xplug_swap	I	F	E
+P17	I
+{
+A18	I
+	A18	#0	:I
+	d
+	j	L19	Gplug	A18	RI	#C	*R	'	#0	!C	n
+	j	L21	P17	Gplug	A18	RI	#C	*R	'	IC	=I	n
+	yI	Gplug	A18	#1	+I	RI	#C	*R	'	IC
+L21
+	j	L22	P17	Gplug	A18	#1	+I	RI	#C	*R	'	IC	=I	n
+	yI	Gplug	A18	RI	#C	*R	'	IC
+L22
+L20
+	A18	#2	:+I
+	b
+L19
+	yI	P17
+}
+Xstep_rotors	C	F	E
+P23	R
+{
+	Gpos	#0	RI	#C	*R	'	#1	;+C
+	j	L24	Gpos	#0	RI	#C	*R	'	#90	>C	n
+	Gpos	#0	RI	#C	*R	'	#26	CI	:-C
+L24
+	j	L25	P23	@	#0	!I	n
+	Gpos	#1	RI	#C	*R	'	#1	;+C
+	j	L26	Gpos	#1	RI	#C	*R	'	#90	>C	n
+	Gpos	#1	RI	#C	*R	'	#26	CI	:-C
+L26
+	Gpos	#2	RI	#C	*R	'	#1	;+C
+	j	L27	Gpos	#2	RI	#C	*R	'	#90	>C	n
+	Gpos	#2	RI	#C	*R	'	#26	CI	:-C
+L27
+	P23	@	#0	:I
+L25
+	j	L28	Gpos	#0	RI	#C	*R	'	Gnotch	Gorder	#0	RI	#C	*R	'	#1	CI	-C	RC	#C	*R	'	=C	n
+	Gpos	#1	RI	#C	*R	'	#1	;+C
+	j	L29	Gpos	#1	RI	#C	*R	'	#90	>C	n
+	Gpos	#1	RI	#C	*R	'	#26	CI	:-C
+L29
+	j	L30	Gpos	#1	RI	#C	*R	'	Gnotch	Gorder	#1	RI	#C	*R	'	#1	CI	-C	RC	#C	*R	'	=C	n
+	P23	@	#1	:I
+L30
+L28
+}
+Xmain	C	F	E
+{
+A31	I
+A32	I
+A33	I
+A34	I
+A35	I
+	A34	#0	:I
+	A35	#0	:I
+	Xcputs	"69,78,73,71,77,65,32,40,100,111,116,32,116,111,32,102,105,110,105,115,104,41,10,0"	a	pR	cC	F1
+	d
+	j	L37	#1	#0	!I	n
+	A31	Xgetc	cI	F0	:I
+	j	L38	A31	#46	IC	=I	A31	#1	_I	=I	s	n
+	j	L37
+L38
+	A31	Xupper	A31	pI	cI	F1	:I
+	j	L39	Xalpha	A31	pI	cI	F1	#0	!I	n	n
+	j	L36
+L39
+	Xstep_rotors	A34	a	pR	cC	F1
+	A31	Xplug_swap	A31	pI	cI	F1	:I
+	A32	#0	:I
+	d
+	j	L40	A32	#3	<I	n
+	A31	Gpos	A32	RI	#C	*R	'	#65	-C	IC	:+I
+	j	L42	A31	#90	IC	>I	n
+	A31	#26	:-I
+L42
+	A31	Grings	A32	RI	#C	*R	'	#65	-C	IC	:-I
+	j	L43	A31	#65	IC	<I	n
+	A31	#26	:+I
+L43
+	A31	Grotor	Gorder	A32	RI	#C	*R	'	#1	CI	-C	#26	CI	*C	IC	A31	+I	#65	IC	-I	RI	#C	*R	'	IC	:I
+	A31	Grings	A32	RI	#C	*R	'	#65	-C	IC	:+I
+	j	L44	A31	#90	IC	>I	n
+	A31	#26	:-I
+L44
+	A31	Gpos	A32	RI	#C	*R	'	#65	-C	IC	:-I
+	j	L45	A31	#65	IC	<I	n
+	A31	#26	:+I
+L45
+L41
+	A32	#1	:+I
+	b
+L40
+	A31	Gref	A31	#65	IC	-I	RI	#C	*R	'	IC	:I
+	A32	#2	:I
+	d
+	j	L46	A32	#0	]I	n
+	A31	Gpos	A32	RI	#C	*R	'	#65	-C	IC	:+I
+	j	L48	A31	#90	IC	>I	n
+	A31	#26	:-I
+L48
+	A31	Grings	A32	RI	#C	*R	'	#65	-C	IC	:-I
+	j	L49	A31	#65	IC	<I	n
+	A31	#26	:+I
+L49
+	A33	#0	:I
+	d
+	j	L50	A33	#26	<I	n
+	j	L52	Grotor	Gorder	A32	RI	#C	*R	'	#1	CI	-C	#26	CI	*C	IC	A33	+I	RI	#C	*R	'	IC	A31	=I	n
+	j	L50
+L52
+L51
+	A33	#1	:+I
+	b
+L50
+	A31	A33	#65	IC	+I	:I
+	A31	Grings	A32	RI	#C	*R	'	#65	-C	IC	:+I
+	j	L53	A31	#90	IC	>I	n
+	A31	#26	:-I
+L53
+	A31	Gpos	A32	RI	#C	*R	'	#65	-C	IC	:-I
+	j	L54	A31	#65	IC	<I	n
+	A31	#26	:+I
+L54
+L47
+	A32	#1	:-I
+	b
+L46
+	A31	Xplug_swap	A31	pI	cI	F1	:I
+	Xputc	A31	pI	cI	F1
+	A35	#1	;+I
+	j	L55	A35	#5	%I	#0	=I	n
+	Xputc	#32	pC	cI	F1
+L55
+L36
+	b
+L37
+	Xputc	#10	pC	cI	F1
+}

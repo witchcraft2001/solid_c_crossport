@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <conio.h>
 
 struct strprt {
     char *j;
@@ -9,7 +9,7 @@ struct strprt mystr2[2] = { { "Hello!", "Hellohell" }, { "Hello", "Hello" } };
 char blah[1] = "h";
 
 char *j = "Hello";
-char *m[] = { "Hello" };
+char *m[] = { "Hello", 0 };
 char *n = "Hello";
 char k[] = "Hello";
 char o[10] = "Hello";
@@ -25,11 +25,11 @@ int *a;
 int nitems;
 {
     int i;
-    for (i = 0; i < nitems; ++i) printf("%d ", a[i]);
-    putchar('\n');
+    for (i = 0; i < nitems; ++i) cprintf("%d ", a[i]);
+    cputs("\n");
 }
 
-int main()
+void main()
 {
     static int ls;
     static int lk = 2;
@@ -37,12 +37,10 @@ int main()
 
     ls = ij + lk;
 
-    puts("STATICS init test");
-    printf("mystr2[0]=%s/%s\n", mystr2[0].j, mystr2[0].k);
-    printf("strings: %s %s %s %s %s %s\n", j, m[0], n, k, o, l[0]);
-    printf("p[0]=%s ls=%d lk=%d lj=%s\n", p[0], ls, lk, lj);
+    cputs("STATICS init test\n");
+    cprintf("mystr2[0]=%s/%s\n", mystr2[0].j, mystr2[0].k);
+    cprintf("strings: %s %s %s %s %s %s\n", j, m[0], n, k, o, l[0]);
+    cprintf("p[0]=%s ls=%d lk=%d lj=%s\n", p[0], ls, lk, lj);
     dump_ints(ik, 3);
     dump_ints(il, 4);
-
-    return 0;
 }

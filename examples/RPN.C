@@ -1,74 +1,87 @@
-#include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
+#include <conio.h>
 
 #define MAXOP 40
-#define NUMBER '0'
 #define STACKSIZE 40
+#define NUMBER '0'
 
-unsigned char sp;
+char line[MAXOP + 2];
+int sp;
 int stack[STACKSIZE];
+int pos;
+int num;
 
-char s[MAXOP];
-unsigned char pos;
-int n;
+int is_digit(ch)
+int ch;
+{
+    return (ch >= '0' && ch <= '9');
+}
 
 void push(v)
 int v;
 {
     if (sp < STACKSIZE) stack[sp++] = v;
-    else puts("Stack full");
+    else cputs("Stack full\n");
 }
 
 int pop()
 {
     if (sp > 0) return stack[--sp];
-    puts("Stack empty");
+    cputs("Stack empty\n");
     return 0;
 }
 
 int top()
 {
     if (sp > 0) return stack[sp - 1];
-    puts("Stack empty");
     return 0;
 }
 
 int read_op()
 {
+    int ch;
+    char *s;
+
     if (pos == 0) {
-        if (gets(s) == NULL) return 0;
+        line[0] = MAXOP;
+        line[1] = 0;
+        s = cgets(line);
+        if (s == 0) return 0;
     }
 
-    while (s[pos] == ' ' || s[pos] == '\t') pos++;
+    while (line[pos + 2] == ' ' || line[pos + 2] == '\t') pos++;
 
-    if (s[pos] == '\0') {
+    if (line[pos + 2] == '\0') {
         pos = 0;
         return '\n';
     }
 
-    if (!isdigit((unsigned char)s[pos])) return s[pos++];
+    ch = line[pos + 2];
+    if (!is_digit(ch)) {
+        pos++;
+        return ch;
+    }
 
-    n = s[pos] - '0';
-    while (isdigit((unsigned char)s[++pos])) {
-        n = 10 * n + s[pos] - '0';
+    num = 0;
+    while (is_digit(line[pos + 2])) {
+        num = num * 10 + (line[pos + 2] - '0');
+        pos++;
     }
     return NUMBER;
 }
 
-int main()
+void main()
 {
     int type;
     int op2;
 
-    puts("RPN calculator. '.' to quit.");
+    cputs("RPN calculator ('.' to exit)\n");
     sp = 0;
     pos = 0;
 
     while ((type = read_op()) != 0) {
         switch (type) {
         case NUMBER:
-            push(n);
+            push(num);
             break;
         case '+':
             push(pop() + pop());
@@ -82,19 +95,17 @@ int main()
             break;
         case '/':
             op2 = pop();
-            if (op2 != 0) push(pop() / op2);
-            else puts("Divide by 0");
+            if (op2 == 0) cputs("Divide by zero\n");
+            else push(pop() / op2);
             break;
         case '.':
-            return 0;
+            return;
         case '\n':
-            printf("==> %d\n", top());
+            cprintf("==> %d\n", top());
             break;
         default:
-            printf("Unknown token: %c\n", type);
+            cprintf("Unknown token: %c\n", type);
             break;
         }
     }
-
-    return 0;
 }

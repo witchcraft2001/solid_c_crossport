@@ -1,0 +1,742 @@
+	.z80
+;	SOLID C Compiler ver 1.00 (pass 2)
+
+	cseg
+rotor_:
+	db	69
+	db	75
+	db	77
+	db	70
+	db	76
+	db	71
+	db	68
+	db	81
+	db	86
+	db	90
+	db	78
+	db	84
+	db	79
+	db	87
+	db	89
+	db	72
+	db	88
+	db	85
+	db	83
+	db	80
+	db	65
+	db	73
+	db	66
+	db	82
+	db	67
+	db	74
+	db	65
+	db	74
+	db	68
+	db	75
+	db	83
+	db	73
+	db	82
+	db	85
+	db	88
+	db	66
+	db	76
+	db	72
+	db	87
+	db	84
+	db	77
+	db	67
+	db	81
+	db	71
+	db	90
+	db	78
+	db	80
+	db	89
+	db	70
+	db	86
+	db	79
+	db	69
+	db	66
+	db	68
+	db	70
+	db	72
+	db	74
+	db	76
+	db	67
+	db	80
+	db	82
+	db	84
+	db	88
+	db	86
+	db	90
+	db	78
+	db	89
+	db	69
+	db	73
+	db	87
+	db	71
+	db	65
+	db	75
+	db	77
+	db	85
+	db	83
+	db	81
+	db	79
+	db	69
+	db	83
+	db	79
+	db	86
+	db	80
+	db	90
+	db	74
+	db	65
+	db	89
+	db	81
+	db	85
+	db	73
+	db	82
+	db	72
+	db	88
+	db	76
+	db	78
+	db	70
+	db	84
+	db	71
+	db	75
+	db	68
+	db	67
+	db	77
+	db	87
+	db	66
+	db	86
+	db	90
+	db	66
+	db	82
+	db	71
+	db	73
+	db	84
+	db	89
+	db	85
+	db	80
+	db	83
+	db	68
+	db	78
+	db	72
+	db	76
+	db	88
+	db	65
+	db	87
+	db	77
+	db	74
+	db	81
+	db	79
+	db	70
+	db	69
+	db	67
+	db	75
+	db	0
+ref_:
+	db	89
+	db	82
+	db	85
+	db	72
+	db	81
+	db	83
+	db	76
+	db	68
+	db	80
+	db	88
+	db	78
+	db	71
+	db	79
+	db	75
+	db	77
+	db	73
+	db	69
+	db	66
+	db	70
+	db	90
+	db	67
+	db	87
+	db	86
+	db	74
+	db	65
+	db	84
+	db	0
+notch_:
+	db	81
+	db	69
+	db	86
+	db	74
+	db	90
+	db	0
+order_:
+	db	3
+	db	1
+	db	2
+rings_:
+	db	87
+	db	88
+	db	84
+pos_:
+	db	65
+	db	87
+	db	69
+plug_:
+	db	65
+	db	77
+	db	84
+	db	69
+	db	0
+;{
+alpha_:
+	push	ix
+	ld	ix,0
+	add	ix,sp
+	push	hl
+	ld	(ix-2),l
+	ld	(ix-1),h
+	ld	de,65
+	call	?cpshd
+	jp	c,@0
+	ex	de,hl
+	ld	hl,90
+	call	?cpshd
+	jp	nc,@1
+@0:
+	ld	l,(ix-2)
+	ld	h,(ix-1)
+	ld	de,97
+	call	?cpshd
+	jp	c,@2
+	ex	de,hl
+	ld	hl,122
+	call	?cpshd
+	jp	c,@2
+@1:
+	ld	hl,1
+	jp	@3
+@2:
+	ld	hl,0
+@3:
+	ld	sp,ix
+	pop	ix
+	ret
+;}
+
+;{
+upper_:
+	push	ix
+	ld	ix,0
+	add	ix,sp
+	push	hl
+	ld	(ix-2),l
+	ld	(ix-1),h
+	ld	de,97
+	call	?cpshd
+	jp	c,@4
+	ex	de,hl
+	ld	hl,122
+	call	?cpshd
+	jp	c,@4
+	ld	l,(ix-2)
+	ld	h,(ix-1)
+	ld	bc,65504
+	add	hl,bc
+	jp	@5
+@4:
+	ld	l,(ix-2)
+	ld	h,(ix-1)
+@5:
+	ld	sp,ix
+	pop	ix
+	ret
+;}
+
+;{
+plug_swap_:
+	ld	c,l
+	ld	b,h
+	ld	de,0
+@9:
+	ld	hl,plug_
+	add	hl,de
+	ld	a,(hl)
+	or	a
+	jp	z,@6
+	ld	hl,plug_
+	add	hl,de
+	ld	l,(hl)
+	ld	h,0
+	ld	a,c
+	cp	l
+	jr	nz,$+4
+	ld	a,b
+	cp	h
+	jp	nz,@7
+	ld	hl,plug_+1
+	add	hl,de
+	ld	l,(hl)
+	ld	h,0
+	ret
+@7:
+	ld	hl,plug_+1
+	add	hl,de
+	ld	l,(hl)
+	ld	h,0
+	ld	a,c
+	cp	l
+	jr	nz,$+4
+	ld	a,b
+	cp	h
+	jp	nz,@8
+	ld	hl,plug_
+	add	hl,de
+	ld	l,(hl)
+	ld	h,0
+	ret
+@8:
+	inc	de
+	inc	de
+	jp	@9
+@6:
+	ld	l,c
+	ld	h,b
+	ret
+;}
+
+;{
+step_rotors_:
+	ex	de,hl
+	ld	hl,pos_
+	inc	(hl)
+	ld	a,(pos_)
+	cp	91
+	jp	c,@10
+	ld	a,(pos_)
+	sub	26
+	ld	(pos_),a
+@10:
+	ld	l,e
+	ld	h,d
+	ld	a,(hl)
+	inc	hl
+	or	(hl)
+	jp	z,@11
+	ld	hl,pos_+1
+	inc	(hl)
+	ld	a,(pos_+1)
+	cp	91
+	jp	c,@12
+	ld	a,(pos_+1)
+	sub	26
+	ld	(pos_+1),a
+@12:
+	ld	hl,pos_+2
+	inc	(hl)
+	ld	a,(pos_+2)
+	cp	91
+	jp	c,@13
+	ld	a,(pos_+2)
+	sub	26
+	ld	(pos_+2),a
+@13:
+	ld	l,e
+	ld	h,d
+	ld	(hl),0
+	inc	hl
+	ld	(hl),0
+@11:
+	ld	a,(order_)
+	dec	a
+	ld	l,a
+	ld	h,0
+	ld	bc,notch_
+	add	hl,bc
+	ld	a,(pos_)
+	cp	(hl)
+	ret	nz
+	ld	hl,pos_+1
+	inc	(hl)
+	ld	a,(pos_+1)
+	cp	91
+	jp	c,@14
+	ld	a,(pos_+1)
+	sub	26
+	ld	(pos_+1),a
+@14:
+	ld	a,(order_+1)
+	dec	a
+	ld	l,a
+	ld	h,0
+	ld	bc,notch_
+	add	hl,bc
+	ld	a,(pos_+1)
+	cp	(hl)
+	ret	nz
+	ex	de,hl
+	ld	(hl),1
+	inc	hl
+	ld	(hl),0
+	ret
+;}
+
+?63999:
+	db	69,78,73,71,77,65,32,40,100,111
+	db	116,32,116,111,32,102,105,110,105,115
+	db	104,41,10,0
+;{
+main_:
+	push	ix
+	ld	ix,0
+	add	ix,sp
+	ld	hl,65526
+	add	hl,sp
+	ld	sp,hl
+	ld	hl,0
+	ld	(ix-4),l
+	ld	(ix-3),h
+	ld	hl,0
+	ld	(ix-2),l
+	ld	(ix-1),h
+	ld	hl,?63999
+	call	cputs_
+@16:
+	call	getc_
+	ld	a,l
+	sub	46
+	or	h
+	jp	z,@15
+	ld	a,l
+	and	h
+	inc	a
+	jp	z,@15
+	call	upper_
+	ld	(ix-10),l
+	ld	(ix-9),h
+	call	alpha_
+	ld	a,l
+	or	h
+	jp	z,@16
+	ld	hl,6
+	add	hl,sp
+	call	step_rotors_
+	ld	l,(ix-10)
+	ld	h,(ix-9)
+	call	plug_swap_
+	ld	c,l
+	ld	b,h
+	ld	(ix-10),c
+	ld	(ix-9),b
+	ld	hl,0
+@22:
+	ld	de,3
+	call	?cpshd
+	jp	nc,@17
+	push	hl
+	ld	bc,pos_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	ld	c,(ix-10)
+	ld	b,(ix-9)
+	add	hl,bc
+	ex	de,hl
+	ld	hl,90
+	call	?cpshd
+	jp	nc,@18
+	ld	hl,65510
+	add	hl,de
+	ex	de,hl
+@18:
+	pop	hl
+	ld	(ix-8),l
+	ld	(ix-7),h
+	ld	bc,rings_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	ld	a,e
+	sub	l
+	ld	l,a
+	ld	a,d
+	sbc	a,h
+	ld	h,a
+	ld	de,65
+	call	?cpshd
+	jp	nc,@19
+	ld	bc,26
+	add	hl,bc
+@19:
+	push	hl
+	ld	l,(ix-8)
+	ld	h,(ix-7)
+	ld	(ix-8),l
+	ld	(ix-7),h
+	ld	bc,order_
+	add	hl,bc
+	ld	a,(hl)
+	dec	a
+	add	a,a
+	ld	b,a
+	add	a,a
+	add	a,a
+	ld	c,a
+	add	a,a
+	add	a,c
+	add	a,b
+	ld	l,a
+	ld	h,0
+	pop	bc
+	add	hl,bc
+	ld	bc,rotor_-65
+	add	hl,bc
+	ld	l,(hl)
+	ld	h,0
+	ex	de,hl
+	ld	c,(ix-8)
+	ld	b,(ix-7)
+	ld	hl,rings_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	add	hl,de
+	ex	de,hl
+	ld	hl,90
+	call	?cpshd
+	jp	nc,@20
+	ld	hl,65510
+	add	hl,de
+	ex	de,hl
+@20:
+	ld	hl,pos_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	ld	a,e
+	sub	l
+	ld	l,a
+	ld	a,d
+	sbc	a,h
+	ld	h,a
+	push	bc
+	ld	c,l
+	ld	b,h
+	ld	(ix-10),c
+	ld	(ix-9),b
+	ld	l,c
+	ld	h,b
+	ld	de,65
+	call	?cpshd
+	jp	nc,@21
+	ld	hl,26
+	add	hl,bc
+	ld	c,l
+	ld	b,h
+	ld	(ix-10),c
+	ld	(ix-9),b
+@21:
+	pop	hl
+	inc	hl
+	jp	@22
+@17:
+	ld	hl,ref_-65
+	add	hl,bc
+	ld	l,(hl)
+	ld	h,0
+	ld	(ix-10),l
+	ld	(ix-9),h
+	ld	bc,2
+	ld	(ix-8),c
+	ld	(ix-7),b
+@30:
+	inc	b
+	dec	b
+	jp	m,@23
+	ld	hl,pos_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	push	bc
+	ld	c,(ix-10)
+	ld	b,(ix-9)
+	add	hl,bc
+	ex	de,hl
+	ld	hl,90
+	call	?cpshd
+	jp	nc,@24
+	ld	hl,65510
+	add	hl,de
+	ex	de,hl
+@24:
+	pop	bc
+	ld	hl,rings_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	ld	a,e
+	sub	l
+	ld	l,a
+	ld	a,d
+	sbc	a,h
+	ld	h,a
+	ld	(ix-10),l
+	ld	(ix-9),h
+	ld	de,65
+	push	bc
+	call	?cpshd
+	jp	nc,@25
+	ld	bc,26
+	add	hl,bc
+	ld	(ix-10),l
+	ld	(ix-9),h
+@25:
+	ld	hl,0
+	ld	(ix-6),l
+	ld	(ix-5),h
+@27:
+	ld	de,26
+	call	?cpshd
+	jp	nc,@26
+	push	hl
+	ld	l,(ix-8)
+	ld	h,(ix-7)
+	ld	bc,order_
+	add	hl,bc
+	ld	a,(hl)
+	dec	a
+	add	a,a
+	ld	b,a
+	add	a,a
+	add	a,a
+	ld	c,a
+	add	a,a
+	add	a,c
+	add	a,b
+	ld	l,a
+	ld	h,0
+	pop	bc
+	add	hl,bc
+	ld	bc,rotor_
+	add	hl,bc
+	ld	l,(hl)
+	ld	h,0
+	ld	e,(ix-10)
+	ld	d,(ix-9)
+	ld	a,l
+	cp	e
+	jr	nz,$+4
+	ld	a,h
+	cp	d
+	jp	z,@26
+	ld	l,(ix-6)
+	ld	h,(ix-5)
+	inc	hl
+	ld	(ix-6),l
+	ld	(ix-5),h
+	jp	@27
+@26:
+	ld	l,(ix-6)
+	ld	h,(ix-5)
+	ld	bc,65
+	add	hl,bc
+	ex	de,hl
+	pop	bc
+	ld	hl,rings_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	add	hl,de
+	ex	de,hl
+	ld	hl,90
+	call	?cpshd
+	jp	nc,@28
+	ld	hl,65510
+	add	hl,de
+	ex	de,hl
+@28:
+	ld	hl,pos_
+	add	hl,bc
+	ld	a,(hl)
+	sub	65
+	ld	l,a
+	ld	h,0
+	ld	a,e
+	sub	l
+	ld	l,a
+	ld	a,d
+	sbc	a,h
+	ld	h,a
+	ld	(ix-10),l
+	ld	(ix-9),h
+	ld	de,65
+	push	bc
+	call	?cpshd
+	jp	nc,@29
+	ld	bc,26
+	add	hl,bc
+	ld	(ix-10),l
+	ld	(ix-9),h
+@29:
+	pop	bc
+	dec	bc
+	ld	(ix-8),c
+	ld	(ix-7),b
+	jp	@30
+@23:
+	call	plug_swap_
+	call	putc_
+	ld	l,(ix-2)
+	ld	h,(ix-1)
+	inc	hl
+	ld	(ix-2),l
+	ld	(ix-1),h
+	ld	de,5
+	call	?dvihd
+	ld	a,e
+	or	d
+	jp	nz,@16
+	ld	a,32
+	call	putc_
+	jp	@16
+@15:
+	ld	a,10
+	call	putc_
+	ld	sp,ix
+	pop	ix
+	ret
+;}
+
+
+	public	rotor_
+	public	ref_
+	public	notch_
+	public	order_
+	public	rings_
+	public	pos_
+	public	plug_
+	public	alpha_
+	extrn	?cpshd
+	public	upper_
+	public	plug_swap_
+	public	step_rotors_
+	public	main_
+	extrn	cputs_
+	extrn	getc_
+	extrn	putc_
+	extrn	?dvihd
+
+	end
