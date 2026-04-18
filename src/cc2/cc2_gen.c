@@ -3409,6 +3409,12 @@ static void gen_expr_stmt(Cc2State *cc)
                         emit_instr(cc, "ld", "l,a");
                         /* value now in HL, dest address lost — need to handle */
                         vpush(VK_HL, NULL, 0, type);
+                    } else if (value->kind == VK_ADDR_HL && value->is_addr) {
+                        /* Source has address-of applied ('a' after '):
+                         * HL already holds the address itself (pointer value),
+                         * no deref — just store HL to dest. */
+                        gen_store_hl(cc, dest);
+                        vpush(VK_HL, NULL, 0, type);
                     } else if (value->kind == VK_ADDR_HL) {
                         /* Source is indirect: load 16-bit from (HL) */
                         emit_instr(cc, "ld", "a,(hl)");
