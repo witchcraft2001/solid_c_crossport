@@ -1582,6 +1582,45 @@ static void peephole_optimize(void)
                 }
             }
 
+            /* ld hl,X / ex de,hl / add hl,de → ld hl,X / add hl,de
+             * when DE's original value is dead after the add.
+             * Addition is commutative; skipping the swap saves 1 byte.
+             * Safety: the instruction after add hl,de must not read DE
+             * (our code emits ld e,/ld d, or similar store-only patterns
+             * before needing DE again). */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strncmp(a->text, "ld\thl,", 6) == 0 &&
+                strcmp(b->text, "ex\tde,hl") == 0 &&
+                strcmp(c->text, "add\thl,de") == 0) {
+                /* Check i+3: must not read DE's pre-ex value. */
+                int unsafe = 0;
+                if (i + 3 < instr_count) {
+                    Instr *e = &instr_list[i + 3];
+                    if (e->type == INSTR_INST) {
+                        const char *t = e->text;
+                        /* Safe: stores to memory, loads writing to e/d/de,
+                         * jumps/calls (they may use flags only), ld (mem),hl. */
+                        int safe = 0;
+                        if (strncmp(t, "ld\t(", 4) == 0) safe = 1;
+                        if (strncmp(t, "ld\te,", 5) == 0) safe = 1;
+                        if (strncmp(t, "ld\td,", 5) == 0) safe = 1;
+                        if (strncmp(t, "ld\tde,", 6) == 0) safe = 1;
+                        if (strncmp(t, "pop\tde", 6) == 0) safe = 1;
+                        if (strncmp(t, "ex\tde,hl", 8) == 0) safe = 1;
+                        if (!safe) unsafe = 1;
+                    }
+                }
+                if (!unsafe) {
+                    /* Remove b (ex de,hl) */
+                    for (j = i + 1; j < instr_count - 1; j++)
+                        instr_list[j] = instr_list[j + 1];
+                    instr_count--;
+                    i--;
+                    continue;
+                }
+            }
+
             /* push af / <no-A-no-F instr> / pop af → <instr>
              * The push/pop wraps a middle instruction that doesn't touch
              * A or flags. Our `+C` char add emits this defensively, but
