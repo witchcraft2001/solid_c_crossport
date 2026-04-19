@@ -2122,13 +2122,16 @@ static void gen_load_bc(Cc2State *cc, VVal *v);
 static void gen_store_hl(Cc2State *cc, VVal *dest);
 static void gen_store_a(Cc2State *cc, VVal *dest);
 
-/* Returns 1 if env var CC2_TREE_EMIT=1 — enables the new emitter. */
+/* Returns 1 if tree emitter should run. Enabled by default since the
+ * gate ct_stmt_worth_tree_emit only fires for patterns that match
+ * the reference compiler's reorder behavior. Can be disabled via
+ * CC2_TREE_EMIT=0 for debugging. */
 static int ct_emit_enabled(void)
 {
     static int cached = -1;
     if (cached < 0) {
         const char *e = getenv("CC2_TREE_EMIT");
-        cached = (e && e[0] == '1') ? 1 : 0;
+        cached = (e && e[0] == '0') ? 0 : 1;
     }
     return cached;
 }
