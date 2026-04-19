@@ -922,6 +922,21 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* ld hl,X / ld hl,Y → remove first (dead). Must NOT remove when
+         * second form uses HL on RHS (e.g., 'ld hl,(hl)' isn't valid but
+         * we guard anyway). Also exclude cases where src contains "hl"
+         * reference (defensive). */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "ld\thl,", 6) == 0 &&
+            strncmp(b->text, "ld\thl,", 6) == 0 &&
+            strstr(b->text + 6, "hl") == NULL) {
+            for (j = i; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* Unreachable code after unconditional jump:
          *   jp X (no comma) / <INST not label> → remove second.
          * After unconditional jp, any following instruction is dead
