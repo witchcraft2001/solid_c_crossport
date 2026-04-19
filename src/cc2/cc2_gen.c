@@ -829,6 +829,18 @@ static void peephole_optimize(void)
             }
         }
 
+        /* Dead @N: followed by ANY instruction: if @N is never
+         * referenced by a jp/call/etc, the label is dead weight.
+         * More general than the LABEL/LABEL variant above. */
+        if (a->type == INSTR_LABEL &&
+            !peephole_label_referenced(a->text)) {
+            for (j = i; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* ld a,(SRC) / ld <R>,a → ld <R>,(SRC) when A is dead after.
          * IMPORTANT: Z80 only allows 'ld <R>,(hl)' and 'ld <R>,(ix±N)'
          * for byte register loads. 'ld c,(sym)' is INVALID.
