@@ -980,6 +980,39 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* ld R,X / ld R,Y → remove first (dead) for 8-bit R = b/c/d/e/h/l.
+         * Safety: Y must not reference R itself (e.g., ld l,X / ld l,(hl)
+         * uses H/L so keeping is necessary). Conservative check: Y must
+         * not contain the letter R as a standalone token. */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "ld\t", 3) == 0 &&
+            strncmp(b->text, "ld\t", 3) == 0 &&
+            a->text[3] != 'a' && a->text[3] != '(' &&
+            a->text[4] == ',' &&
+            b->text[3] == a->text[3] && b->text[4] == ',' &&
+            (a->text[3] >= 'b' && a->text[3] <= 'l')) {
+            char r = a->text[3];
+            const char *src2 = b->text + 5;
+            /* Conservative: reject if src2 contains the register letter
+             * at all (even as part of "hl", "(hl)" etc. — H or L as
+             * substring disqualifies the l or h case). */
+            int unsafe = 0;
+            const char *p;
+            for (p = src2; *p; p++) {
+                if (*p == r) { unsafe = 1; break; }
+                /* Also unsafe if src2 uses hl/(hl) and r is h or l */
+                if ((r == 'h' || r == 'l') &&
+                    (p[0] == 'h' && p[1] == 'l')) { unsafe = 1; break; }
+            }
+            if (!unsafe) {
+                for (j = i; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                i--;
+                continue;
+            }
+        }
+
         /* push hl / ld hl,X / pop de → ex de,hl / ld hl,X
          * Both result in DE = old HL, HL = X; the alt uses only 2
          * instructions and no stack traffic. Must guard: X must not
