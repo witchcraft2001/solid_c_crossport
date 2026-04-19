@@ -2289,24 +2289,52 @@ static void ct_emit_node(Cc2State *cc, int idx)
                     int base_idx = ct_nodes[left].left;
                     int idx_idx = ct_nodes[left].right;
                     int size = ct_nodes[right].value;
-                    if (base_idx >= 0 && idx_idx >= 0 &&
-                        ct_nodes[base_idx].kind == CT_GLOBAL &&
-                        ct_nodes[idx_idx].kind == CT_GLOBAL &&
+                    CTNode *basen = (base_idx >= 0) ? &ct_nodes[base_idx] : NULL;
+                    CTNode *idxn  = (idx_idx  >= 0) ? &ct_nodes[idx_idx]  : NULL;
+
+                    /* Accept: global-array base; index is either a global
+                     * or a register-allocated local (VK_DE). Element size
+                     * must be 1 or 2. */
+                    int ok = 0;
+                    if (basen && idxn && basen->kind == CT_GLOBAL &&
                         (size == 1 || size == 2)) {
-                        char base_asmn[128], idx_asmn[128];
-                        make_asm_name(ct_nodes[base_idx].sym, base_asmn,
-                                      sizeof(base_asmn));
-                        make_asm_name(ct_nodes[idx_idx].sym, idx_asmn,
-                                      sizeof(idx_asmn));
+                        if (idxn->kind == CT_GLOBAL) {
+                            ok = 1;
+                        } else if (idxn->kind == CT_VAR) {
+                            LocalVar *lv = find_local(idxn->value);
+                            /* Only register-allocated locals — for
+                             * ix-relative locals we'd need ld l,(ix+N)
+                             * /ld h,(ix+N+1) which is a different
+                             * instruction sequence. */
+                            if (lv && lv->reg == VK_DE) ok = 1;
+                        }
+                    }
+                    if (ok) {
+                        char base_asmn[128];
+                        make_asm_name(basen->sym, base_asmn, sizeof(base_asmn));
                         char buf[128];
-                        snprintf(buf, sizeof(buf), "hl,(%s)", idx_asmn);
-                        emit_instr(cc, "ld", buf);
+                        if (idxn->kind == CT_GLOBAL) {
+                            char idx_asmn[128];
+                            make_asm_name(idxn->sym, idx_asmn, sizeof(idx_asmn));
+                            snprintf(buf, sizeof(buf), "hl,(%s)", idx_asmn);
+                            emit_instr(cc, "ld", buf);
+                            int found, jj;
+                            found = 0;
+                            for (jj = 0; jj < decl_count; jj++)
+                                if (strcmp(decl_list[jj].name, idx_asmn) == 0) {
+                                    found = 1; break;
+                                }
+                            if (!found) decl_add(idx_asmn, 0);
+                        } else {
+                            /* VK_DE local: ld l,e / ld h,d */
+                            emit_instr(cc, "ld", "l,e");
+                            emit_instr(cc, "ld", "h,d");
+                        }
                         if (size == 2)
                             emit_instr(cc, "add", "hl,hl");
                         snprintf(buf, sizeof(buf), "bc,%s", base_asmn);
                         emit_instr(cc, "ld", buf);
                         emit_instr(cc, "add", "hl,bc");
-                        /* Register extrns */
                         int found, jj;
                         found = 0;
                         for (jj = 0; jj < decl_count; jj++)
@@ -2314,12 +2342,6 @@ static void ct_emit_node(Cc2State *cc, int idx)
                                 found = 1; break;
                             }
                         if (!found) decl_add(base_asmn, 0);
-                        found = 0;
-                        for (jj = 0; jj < decl_count; jj++)
-                            if (strcmp(decl_list[jj].name, idx_asmn) == 0) {
-                                found = 1; break;
-                            }
-                        if (!found) decl_add(idx_asmn, 0);
                         vpush(VK_ADDR_HL, NULL, 0, n->type);
                         break;
                     }
