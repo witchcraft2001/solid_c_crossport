@@ -1167,6 +1167,81 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* ld hl,SYM[+N] / ld (hl),IMM → xor a|ld a,IMM / ld (SYM[+N]),a
+         * Matches ref pattern for constant-address char stores
+         * (e.g., sieve_[0]=0 emits `xor a / ld (sieve_),a`).
+         * Safety: next instruction must not use HL or depend on flags/A.
+         * SYM must be a plain symbol (not a parenthesized form). */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "ld\thl,", 6) == 0 &&
+            strncmp(b->text, "ld\t(hl),", 8) == 0) {
+            const char *sym = a->text + 6;
+            const char *val = b->text + 8;
+            /* SYM must start with letter/underscore (not '(' or digit) */
+            int sym_ok = ((*sym >= 'a' && *sym <= 'z') ||
+                          (*sym >= 'A' && *sym <= 'Z') || *sym == '_');
+            /* VAL must be decimal integer */
+            int val_ok = (*val == '-' || (*val >= '0' && *val <= '9'));
+            if (sym_ok && val_ok) {
+                /* Parse integer value */
+                int n = atoi(val);
+                /* Check next instruction — must not use HL or A/flags */
+                int unsafe = 0;
+                if (i + 2 < instr_count) {
+                    Instr *c = &instr_list[i + 2];
+                    if (c->type == INSTR_INST) {
+                        const char *t = c->text;
+                        /* Safe: ld hl,X where X doesn't itself reference HL —
+                         * this WRITES HL without reading its prior value. */
+                        int ld_hl_imm = (strncmp(t, "ld\thl,", 6) == 0 &&
+                                         strstr(t + 6, "hl") == NULL);
+                        if (!ld_hl_imm) {
+                            if (strstr(t, "hl") || strstr(t, "(hl)"))
+                                unsafe = 1;
+                        }
+                        /* Flag-dependent: conditional jp/call/ret */
+                        if (strncmp(t, "jp\t", 3) == 0 && strchr(t + 3, ','))
+                            unsafe = 1;
+                        if (strncmp(t, "ret\t", 4) == 0)
+                            unsafe = 1;
+                        if (strncmp(t, "call\t", 5) == 0 && strchr(t + 5, ','))
+                            unsafe = 1;
+                        /* A-dependent arithmetic without prior load */
+                        if (strncmp(t, "add\ta,", 6) == 0 ||
+                            strncmp(t, "adc\t", 4) == 0 ||
+                            strncmp(t, "sub\t", 4) == 0 ||
+                            strncmp(t, "sbc\t", 4) == 0 ||
+                            strncmp(t, "cp\t", 3) == 0 ||
+                            strncmp(t, "and\t", 4) == 0 ||
+                            strncmp(t, "or\t", 3) == 0 ||
+                            strncmp(t, "xor\t", 4) == 0 ||
+                            strncmp(t, "inc\ta", 5) == 0 ||
+                            strncmp(t, "dec\ta", 5) == 0)
+                            unsafe = 1;
+                    }
+                }
+                if (!unsafe) {
+                    /* Build new instructions. Strip "+0" suffix from sym
+                     * to match ref syntax (`sieve_+0` → `sieve_`). */
+                    char symbuf[INSTR_BUF];
+                    snprintf(symbuf, sizeof(symbuf), "%s", sym);
+                    size_t slen = strlen(symbuf);
+                    if (slen >= 2 && symbuf[slen-2] == '+' &&
+                        symbuf[slen-1] == '0')
+                        symbuf[slen-2] = '\0';
+                    /* Replace a with load to A */
+                    if (n == 0)
+                        snprintf(a->text, INSTR_BUF, "xor\ta");
+                    else
+                        snprintf(a->text, INSTR_BUF, "ld\ta,%d", n);
+                    /* Replace b with store to direct address */
+                    snprintf(b->text, INSTR_BUF, "ld\t(%s),a", symbuf);
+                    i--;
+                    continue;
+                }
+            }
+        }
+
         /* 3-instruction patterns */
         if (i < instr_count - 2) {
             Instr *c = &instr_list[i + 2];
