@@ -2662,6 +2662,58 @@ static void ct_emit_node(Cc2State *cc, int idx)
             emit_instr(cc, "ld", buf);
             emit_instr(cc, "add", "hl,de");
             vpush(VK_HL, NULL, 0, type);
+        } else if (op == '+' && (type == 'I' || type == 'N') &&
+                   a->kind == VK_HL && b->kind == VK_IMM) {
+            /* HL + imm: inc hl for ±1, else ld de,imm / add hl,de */
+            if (b->value == 1) {
+                emit_instr(cc, "inc", "hl");
+            } else {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "de,%d", b->value & 0xFFFF);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,de");
+            }
+            vpush(VK_HL, NULL, 0, type);
+        } else if (op == '-' && (type == 'I' || type == 'N') &&
+                   a->kind == VK_HL && b->kind == VK_IMM) {
+            /* HL - imm: dec hl for 1, else ld de,-imm / add hl,de */
+            if (b->value == 1) {
+                emit_instr(cc, "dec", "hl");
+            } else {
+                int neg = (-b->value) & 0xFFFF;
+                char buf[32];
+                snprintf(buf, sizeof(buf), "de,%d", neg);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,de");
+            }
+            vpush(VK_HL, NULL, 0, type);
+        } else if ((op == '&' || op == '|' || op == '^') &&
+                   type == 'C' && a->kind == VK_A && b->kind == VK_IMM) {
+            /* Char bitwise with immediate: and/or/xor a,N */
+            char buf[32];
+            snprintf(buf, sizeof(buf), "a,%d", b->value & 0xFF);
+            const char *mn = (op == '&') ? "and" : (op == '|') ? "or" : "xor";
+            emit_instr(cc, mn, buf);
+            vpush(VK_A, NULL, 0, 'C');
+        } else if (op == '*' && (type == 'I' || type == 'N') &&
+                   a->kind == VK_HL && b->kind == VK_IMM) {
+            /* HL * imm: strength reduce for small constants (matches
+             * streaming peephole at L8xx templates). */
+            int val = b->value & 0xFFFF;
+            if (val == 0) {
+                emit_instr(cc, "ld", "hl,0");
+            } else if (val == 1) {
+                /* no-op */
+            } else if (val == 2) {
+                emit_instr(cc, "add", "hl,hl");
+            } else if (val == 4) {
+                emit_instr(cc, "add", "hl,hl");
+                emit_instr(cc, "add", "hl,hl");
+            } else {
+                ct_fallback = 1;
+                break;
+            }
+            vpush(VK_HL, NULL, 0, type);
         } else {
             ct_fallback = 1;
         }
@@ -2846,6 +2898,7 @@ static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
     }
     return 1;
 }
+
 
 /* ================================================================
  *  Register allocator — mirrors CCC.ASM optimizer phase 2
