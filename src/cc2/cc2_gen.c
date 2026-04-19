@@ -2190,6 +2190,59 @@ static void ct_emit_node(Cc2State *cc, int idx)
     case CT_UNARY: {
         /* Unary op. For ' (deref), emit load of address into HL. */
         if (n->op == '\'' || n->kind == CT_DEREF) {
+            /* Special case: array element access pattern
+             *   UNARY(', BINARY('*', SUBSCR(base, idx), CONST(size)))
+             * Emit: ld hl,(idx); shift by size; ld bc,base; add hl,bc
+             * This is the classic MASS[i] computation. */
+            int child = n->left;
+            if (child >= 0 && child < ct_node_count &&
+                ct_nodes[child].kind == CT_BINARY &&
+                ct_nodes[child].op == '*') {
+                int left = ct_nodes[child].left;
+                int right = ct_nodes[child].right;
+                if (left >= 0 && right >= 0 &&
+                    ct_nodes[left].kind == CT_SUBSCR &&
+                    ct_nodes[right].kind == CT_CONST) {
+                    int base_idx = ct_nodes[left].left;
+                    int idx_idx = ct_nodes[left].right;
+                    int size = ct_nodes[right].value;
+                    if (base_idx >= 0 && idx_idx >= 0 &&
+                        ct_nodes[base_idx].kind == CT_GLOBAL &&
+                        ct_nodes[idx_idx].kind == CT_GLOBAL &&
+                        (size == 1 || size == 2)) {
+                        char base_asmn[128], idx_asmn[128];
+                        make_asm_name(ct_nodes[base_idx].sym, base_asmn,
+                                      sizeof(base_asmn));
+                        make_asm_name(ct_nodes[idx_idx].sym, idx_asmn,
+                                      sizeof(idx_asmn));
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "hl,(%s)", idx_asmn);
+                        emit_instr(cc, "ld", buf);
+                        if (size == 2)
+                            emit_instr(cc, "add", "hl,hl");
+                        snprintf(buf, sizeof(buf), "bc,%s", base_asmn);
+                        emit_instr(cc, "ld", buf);
+                        emit_instr(cc, "add", "hl,bc");
+                        /* Register extrns */
+                        int found, jj;
+                        found = 0;
+                        for (jj = 0; jj < decl_count; jj++)
+                            if (strcmp(decl_list[jj].name, base_asmn) == 0) {
+                                found = 1; break;
+                            }
+                        if (!found) decl_add(base_asmn, 0);
+                        found = 0;
+                        for (jj = 0; jj < decl_count; jj++)
+                            if (strcmp(decl_list[jj].name, idx_asmn) == 0) {
+                                found = 1; break;
+                            }
+                        if (!found) decl_add(idx_asmn, 0);
+                        vpush(VK_ADDR_HL, NULL, 0, n->type);
+                        break;
+                    }
+                }
+            }
+            /* Generic path: evaluate child, convert to VK_ADDR_HL */
             ct_emit_node(cc, n->left);
             if (ct_fallback) break;
             VVal *top = vtop();
@@ -2264,9 +2317,87 @@ static void ct_emit_node(Cc2State *cc, int idx)
         break;
     }
     case CT_CALL: {
-        /* Function call — delegate to parse_func_call? But parse_func_call
-         * reads TMC and we have tree. For now, fallback. */
-        ct_fallback = 1;
+        /* Function call — emit directly from tree.
+         * Currently handles: zero-arg calls (CT_CALL with no children).
+         * Args are attached via left/right; for multi-arg we'd need
+         * CT_COMMA walking. Fall back for now if args exist.
+         *
+         * Result of call left in HL (convention for int/ptr returns)
+         * or A (for char). We push VK_HL by default. */
+        if (n->left >= 0 || n->right >= 0) {
+            /* Has arguments — delegate to streaming emitter for now */
+            ct_fallback = 1;
+            break;
+        }
+        char asmname[128];
+        make_asm_name(n->sym, asmname, sizeof(asmname));
+        emit_instr(cc, "call", asmname);
+        /* Register as extrn */
+        int found = 0, j;
+        for (j = 0; j < decl_count; j++)
+            if (strcmp(decl_list[j].name, asmname) == 0) { found = 1; break; }
+        if (!found) decl_add(asmname, 0);
+        vpush(VK_HL, NULL, 0, n->type ? n->type : 'N');
+        break;
+    }
+    case CT_BINARY: {
+        /* Binary operator: left op right. For the specific reorder
+         * pattern we care about (Mass[i] = rand()/K - M), we need:
+         * '%' with VK_HL % IMM → use ?dvnhd/?dvihd, result in DE
+         * '-' with VK_DE - IMM → subtract constant from DE
+         * Other ops: fallback for now. */
+        char op = (char)n->op;
+        char type = n->type;
+
+        /* Evaluate left, then right, onto vstack */
+        ct_emit_node(cc, n->left);
+        if (ct_fallback) break;
+        ct_emit_node(cc, n->right);
+        if (ct_fallback) break;
+
+        VVal *b = vpop();
+        VVal *a = vpop();
+        if (!a || !b) { ct_fallback = 1; break; }
+
+        if (op == '%' && type == 'I' && b->kind == VK_IMM &&
+            a->kind == VK_HL) {
+            /* HL % imm: ld de,imm; call ?dvihd; result (remainder) in DE */
+            char buf[32];
+            snprintf(buf, sizeof(buf), "de,%d", b->value & 0xFFFF);
+            emit_instr(cc, "ld", buf);
+            decl_add("?dvihd", 0);
+            emit_instr(cc, "call", "?dvihd");
+            vpush(VK_DE, NULL, 0, 'I');
+        } else if (op == '%' && type == 'N' && b->kind == VK_IMM &&
+                   a->kind == VK_HL) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "de,%d", b->value & 0xFFFF);
+            emit_instr(cc, "ld", buf);
+            decl_add("?dvnhd", 0);
+            emit_instr(cc, "call", "?dvnhd");
+            vpush(VK_DE, NULL, 0, 'N');
+        } else if (op == '-' && (type == 'I' || type == 'N') &&
+                   a->kind == VK_DE && b->kind == VK_IMM) {
+            /* DE - imm = DE + (-imm mod 2^16). Emit ld hl,(-imm);
+             * add hl,de → HL = -imm + DE = DE - imm. Matches ref
+             * pattern for Mass[i] = rand()%100 - 50 (ld hl,65486). */
+            int neg = (-b->value) & 0xFFFF;
+            char buf[32];
+            snprintf(buf, sizeof(buf), "hl,%d", neg);
+            emit_instr(cc, "ld", buf);
+            emit_instr(cc, "add", "hl,de");
+            vpush(VK_HL, NULL, 0, type);
+        } else if (op == '+' && (type == 'I' || type == 'N') &&
+                   a->kind == VK_DE && b->kind == VK_IMM) {
+            /* DE + imm: ld hl,imm; add hl,de */
+            char buf[32];
+            snprintf(buf, sizeof(buf), "hl,%d", b->value & 0xFFFF);
+            emit_instr(cc, "ld", buf);
+            emit_instr(cc, "add", "hl,de");
+            vpush(VK_HL, NULL, 0, type);
+        } else {
+            ct_fallback = 1;
+        }
         break;
     }
     case CT_ASSIGN: {
@@ -2373,6 +2504,7 @@ static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
     CTStmt *s = &ct_stmts[stmt_idx];
     ct_fallback = 0;
     int saved_vsp = vsp;
+    int saved_instr_count = instr_count;
 
     switch (s->kind) {
     case 'e':
@@ -2385,8 +2517,10 @@ static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
     }
 
     if (ct_fallback) {
-        /* Unwind vstack to saved depth — caller will re-emit via stream. */
+        /* Roll back instr_list and vstack to pre-emit state so the
+         * streaming emitter starts fresh without duplicated code. */
         vsp = saved_vsp;
+        instr_count = saved_instr_count;
         return 0;
     }
     return 1;
@@ -6835,8 +6969,16 @@ static void parse_function(Cc2State *cc)
         parse_function_body(cc);
         body_stop_replay(cc);
     } else {
-        /* Simple functions: single-pass */
+        /* Simple functions: single-pass.
+         * Still build the code tree so tree-emitter can handle reorder
+         * opportunities (e.g. Mass[i] = rand()/K in main-style funcs
+         * with no autos/params). */
+        body_capture(cc);
+        ct_build_body(cc);
+        ct_analyze_body();
+        body_start_replay(cc);
         parse_function_body(cc);
+        body_stop_replay(cc);
     }
 
     /* Emit string constants (before function code) */
