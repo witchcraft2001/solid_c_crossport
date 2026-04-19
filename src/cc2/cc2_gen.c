@@ -1137,6 +1137,93 @@ static void peephole_optimize(void)
                 continue;
             }
 
+            /* Loop inversion:
+             *   jp <cond>,@X  / jp @Y / @X:  →  jp <!cond>,@Y / @X:
+             * Classic pattern when TMC emits `if !cond continue;` as
+             * "forward jump over loop-back". Matches CCC.ASM behavior
+             * for while-style loops. Label text is stored without the
+             * trailing colon (see emit_label_instr). */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_LABEL &&
+                strncmp(a->text, "jp\t", 3) == 0 &&
+                strncmp(b->text, "jp\t", 3) == 0 &&
+                c->text[0] == '@') {
+                const char *a_body = a->text + 3;
+                const char *comma = strchr(a_body, ',');
+                if (comma && strchr(b->text + 3, ',') == NULL) {
+                    char cond[8];
+                    int clen = comma - a_body;
+                    if (clen > 0 && clen < (int)sizeof(cond)) {
+                        memcpy(cond, a_body, clen);
+                        cond[clen] = '\0';
+                        const char *target_a = comma + 1;
+                        const char *b_target = b->text + 3;
+                        if (strcmp(target_a, c->text) == 0) {
+                            const char *inv = NULL;
+                            if (strcmp(cond, "z") == 0) inv = "nz";
+                            else if (strcmp(cond, "nz") == 0) inv = "z";
+                            else if (strcmp(cond, "c") == 0) inv = "nc";
+                            else if (strcmp(cond, "nc") == 0) inv = "c";
+                            if (inv) {
+                                snprintf(a->text, INSTR_BUF,
+                                         "jp\t%s,%s", inv, b_target);
+                                /* Remove b */
+                                for (j = i + 1; j < instr_count - 1; j++)
+                                    instr_list[j] = instr_list[j + 1];
+                                instr_count--;
+                                i--;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* Loop inversion (4-instr variant with dead intervening label):
+             *   jp <cond>,@X / @Y: / jp @Z / @X:
+             *     → jp <!cond>,@Z / @Y: / @X:
+             * Same as 3-instr variant but handles the case where TMC
+             * emits a dead label (@Y) between the conditional jump and
+             * the loop-back jump. Label text is stored without colon. */
+            if (i + 3 < instr_count) {
+                Instr *d = &instr_list[i + 3];
+                if (a->type == INSTR_INST && b->type == INSTR_LABEL &&
+                    c->type == INSTR_INST && d->type == INSTR_LABEL &&
+                    strncmp(a->text, "jp\t", 3) == 0 &&
+                    strncmp(c->text, "jp\t", 3) == 0 &&
+                    d->text[0] == '@') {
+                    const char *a_body = a->text + 3;
+                    const char *comma = strchr(a_body, ',');
+                    if (comma && strchr(c->text + 3, ',') == NULL) {
+                        char cond[8];
+                        int clen = comma - a_body;
+                        if (clen > 0 && clen < (int)sizeof(cond)) {
+                            memcpy(cond, a_body, clen);
+                            cond[clen] = '\0';
+                            const char *target_a = comma + 1;
+                            const char *c_target = c->text + 3;
+                            if (strcmp(target_a, d->text) == 0) {
+                                const char *inv = NULL;
+                                if (strcmp(cond, "z") == 0) inv = "nz";
+                                else if (strcmp(cond, "nz") == 0) inv = "z";
+                                else if (strcmp(cond, "c") == 0) inv = "nc";
+                                else if (strcmp(cond, "nc") == 0) inv = "c";
+                                if (inv) {
+                                    snprintf(a->text, INSTR_BUF,
+                                             "jp\t%s,%s", inv, c_target);
+                                    /* Remove c (the unconditional jp) */
+                                    for (j = i + 2; j < instr_count - 1; j++)
+                                        instr_list[j] = instr_list[j + 1];
+                                    instr_count--;
+                                    i--;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             /* 4-instruction: store+reload elimination
              * ld (ix+N),l / ld (ix+M),h / ld l,(ix+N) / ld h,(ix+M) →
              * ld (ix+N),l / ld (ix+M),h (remove redundant reload) */
