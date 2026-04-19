@@ -1778,9 +1778,24 @@ static int ct_build_expr(Cc2State *cc)
         case 'c':
             /* Return type marker — no-op for tree build */
             break;
-        case 'F': case 'U':
-            /* Finalize call — args already attached, CT_CALL on stack */
+        case 'F': case 'U': {
+            /* Finalize call — args already attached, CT_CALL on stack.
+             * tok[1..] is the arg-count string. Store call convention
+             * (F/U) in op and arg count in value so the tree emitter
+             * can dispatch without re-reading TMC. */
+            int ac = atoi(tok + 1);
+            int ci;
+            for (ci = ct_esp - 1; ci >= 0; ci--) {
+                int ni = ct_estack[ci];
+                if (ni >= 0 && ni < ct_node_count &&
+                    ct_nodes[ni].kind == CT_CALL) {
+                    ct_nodes[ni].op = (u8)first; /* 'F' or 'U' */
+                    ct_nodes[ni].value = ac;
+                    break;
+                }
+            }
             break;
+        }
         default:
             /* Unknown token — skip */
             break;
@@ -2154,6 +2169,71 @@ static int ct_subtree_has_call_local(int idx)
     return 0;
 }
 
+/* Extract args of a CT_CALL into args_out[] in source order.
+ * Returns number of args collected. Args are stored:
+ *   0 args: left=right=-1
+ *   1 arg : left=arg0, right=-1
+ *   2 args: left=arg0, right=arg1
+ *   3+ arg: left=arg0, right=COMMA-chain (left-nested)
+ *     3: right = COMMA(arg1, arg2)
+ *     4: right = COMMA(COMMA(arg1, arg2), arg3)  etc.
+ */
+static int ct_extract_call_args(CTNode *call, int *args_out, int max_args)
+{
+    int cnt = 0;
+    if (call->left < 0) return 0;
+    if (cnt < max_args) args_out[cnt] = call->left;
+    cnt++;
+    if (call->right < 0) return cnt;
+    int cur = call->right;
+    if (cur < 0 || cur >= ct_node_count) return cnt;
+    if (ct_nodes[cur].kind != CT_COMMA) {
+        if (cnt < max_args) args_out[cnt] = cur;
+        cnt++;
+        return cnt;
+    }
+    /* Walk left-nested COMMA chain collecting .right at each level.
+     * Order: deepest left is arg1, then stacked right values. */
+    int tmp[32];
+    int tc = 0;
+    while (cur >= 0 && cur < ct_node_count &&
+           ct_nodes[cur].kind == CT_COMMA && tc < 32) {
+        tmp[tc++] = ct_nodes[cur].right;
+        cur = ct_nodes[cur].left;
+    }
+    /* cur is now arg1 (innermost left of the COMMA chain) */
+    if (cnt < max_args) args_out[cnt] = cur;
+    cnt++;
+    while (tc > 0) {
+        if (cnt < max_args) args_out[cnt] = tmp[--tc];
+        else tc--;
+        cnt++;
+    }
+    return cnt;
+}
+
+/* Simple-arg test: subtree evaluates to a stable VVal without emitting
+ * any code (so args can be evaluated in any order without clobbering).
+ * Accepted forms: CT_CONST, CT_GLOBAL, CT_VAR, CT_STRING, and CT_UNARY
+ * with op='a' (address-of) over those. */
+static int ct_arg_is_simple(int idx)
+{
+    if (idx < 0 || idx >= ct_node_count) return 0;
+    CTNode *n = &ct_nodes[idx];
+    switch (n->kind) {
+    case CT_CONST:
+    case CT_GLOBAL:
+    case CT_VAR:
+    case CT_STRING:
+        return 1;
+    case CT_UNARY:
+        if (n->op == 'a') return ct_arg_is_simple(n->left);
+        return 0;
+    default:
+        return 0;
+    }
+}
+
 /* Emit code for a tree node. Result left on vstack.
  * Sets ct_fallback=1 if encountering an unhandled kind. */
 static void ct_emit_node(Cc2State *cc, int idx)
@@ -2269,6 +2349,27 @@ static void ct_emit_node(Cc2State *cc, int idx)
             } else {
                 top->is_addr = 1;
             }
+        } else if (n->op == '_') {
+            /* Unary negate: evaluate child, then negate.
+             * Constant-fold: -IMM → IMM. Otherwise fall back (complex). */
+            ct_emit_node(cc, n->left);
+            if (ct_fallback) break;
+            VVal *top = vtop();
+            if (!top) { ct_fallback = 1; break; }
+            if (top->kind == VK_IMM) {
+                top->value = (-top->value) & 0xFFFF;
+            } else {
+                ct_fallback = 1;
+            }
+        } else if (n->op == 'a') {
+            /* Address-of: mark result as address.
+             * Simplest cases: global → VK_GLOBAL with is_addr=1, local
+             * array → IX-offset as address. */
+            ct_emit_node(cc, n->left);
+            if (ct_fallback) break;
+            VVal *top = vtop();
+            if (!top) { ct_fallback = 1; break; }
+            top->is_addr = 1;
         } else {
             ct_fallback = 1;
         }
@@ -2321,37 +2422,169 @@ static void ct_emit_node(Cc2State *cc, int idx)
     }
     case CT_CALL: {
         /* Function call — emit directly from tree.
-         * Supports:
-         *   0-arg: just 'call func_'
-         *   1-arg: evaluate arg, load into HL, call
-         * Multi-arg: fall back to streaming for now.
+         * call convention: n->op == 'F' or 'U' (stored by builder).
+         * arg_count: n->value.
          *
-         * Result returned in HL (int/ptr) or A (char). Push VK_HL. */
+         * F-type: register calling convention (1:HL, 2:HL+DE, 3:HL+DE+BC)
+         * U-type: varargs; push in reverse, HL = count, call, cleanup.
+         *
+         * Safe evaluation: for multi-arg we require all args to be
+         * "simple" (CT_CONST/CT_GLOBAL/CT_VAR/CT_STRING/addr-of) so
+         * that evaluating one does not clobber a previously-evaluated
+         * register-resident value. Otherwise fall back. */
         char asmname[128];
         make_asm_name(n->sym, asmname, sizeof(asmname));
 
-        if (n->left < 0 && n->right < 0) {
-            /* Zero-arg */
-            emit_instr(cc, "call", asmname);
-        } else if (n->left >= 0 && n->right < 0) {
-            /* Single arg in .left. Evaluate to HL. */
-            ct_emit_node(cc, n->left);
-            if (ct_fallback) break;
-            VVal *arg = vtop();
-            if (!arg) { ct_fallback = 1; break; }
-            gen_load_hl(cc, arg);
-            vsp--;
-            emit_instr(cc, "call", asmname);
-        } else {
-            /* Multi-arg — not yet supported in tree emitter */
+        int call_type = n->op;
+        if (call_type != 'F' && call_type != 'U') call_type = 'F';
+        int expected_ac = n->value;
+
+        int args[ICALL_MAX_ARGS];
+        int nargs = ct_extract_call_args(n, args, ICALL_MAX_ARGS);
+
+        /* Sanity: collected nargs should match encoded count */
+        if (expected_ac != nargs) {
             ct_fallback = 1;
             break;
         }
+
+        /* For any arg count >1, require simple args. */
+        if (nargs >= 2) {
+            int k;
+            for (k = 0; k < nargs; k++) {
+                if (!ct_arg_is_simple(args[k])) {
+                    ct_fallback = 1;
+                    goto ct_call_done;
+                }
+            }
+        }
+
+        if (call_type == 'F') {
+            if (nargs == 0) {
+                emit_instr(cc, "call", asmname);
+            } else if (nargs == 1) {
+                ct_emit_node(cc, args[0]);
+                if (ct_fallback) break;
+                VVal *a0 = vtop();
+                if (!a0) { ct_fallback = 1; break; }
+                if (a0->type == 'C')
+                    gen_load_a(cc, a0);
+                else
+                    gen_load_hl(cc, a0);
+                vsp--;
+                emit_instr(cc, "call", asmname);
+            } else if (nargs == 2) {
+                /* Evaluate both to vstack (no code emission since simple),
+                 * then load DE from arg1 and HL from arg0, in that order. */
+                ct_emit_node(cc, args[0]);
+                if (ct_fallback) break;
+                ct_emit_node(cc, args[1]);
+                if (ct_fallback) break;
+                if (vsp < 2) { ct_fallback = 1; break; }
+                VVal *a1 = &vstack[vsp - 1];
+                VVal *a0 = &vstack[vsp - 2];
+                gen_load_de(cc, a1);
+                gen_load_hl(cc, a0);
+                vsp -= 2;
+                emit_instr(cc, "call", asmname);
+            } else if (nargs == 3) {
+                ct_emit_node(cc, args[0]);
+                if (ct_fallback) break;
+                ct_emit_node(cc, args[1]);
+                if (ct_fallback) break;
+                ct_emit_node(cc, args[2]);
+                if (ct_fallback) break;
+                if (vsp < 3) { ct_fallback = 1; break; }
+                VVal *a2 = &vstack[vsp - 1];
+                VVal *a1 = &vstack[vsp - 2];
+                VVal *a0 = &vstack[vsp - 3];
+                gen_load_bc(cc, a2);
+                gen_load_de(cc, a1);
+                gen_load_hl(cc, a0);
+                vsp -= 3;
+                emit_instr(cc, "call", asmname);
+            } else {
+                ct_fallback = 1;
+                break;
+            }
+        } else { /* 'U' — varargs */
+            int pushes = 0;
+            int k;
+            /* Push args in REVERSE order (arg[N-1] first on stack means
+             * arg[0] at lower address when callee reads them). Matches
+             * gen_inline_call. */
+            for (k = nargs - 1; k >= 0; k--) {
+                ct_emit_node(cc, args[k]);
+                if (ct_fallback) goto ct_call_done;
+                if (vsp < 1) { ct_fallback = 1; goto ct_call_done; }
+                VVal *arg = &vstack[vsp - 1];
+                if (arg->is_addr && arg->kind == VK_STRING) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "bc,?%d",
+                             str_consts[arg->str_idx].label);
+                    emit_instr(cc, "ld", buf);
+                    emit_instr(cc, "push", "bc");
+                } else if (arg->type == 'C') {
+                    if (arg->kind == VK_LOCAL) {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "c,(ix%+d)", arg->value);
+                        emit_instr(cc, "ld", buf);
+                    } else {
+                        gen_load_a(cc, arg);
+                        emit_instr(cc, "ld", "c,a");
+                    }
+                    emit_instr(cc, "push", "bc");
+                } else if (arg->kind == VK_GLOBAL) {
+                    char buf[128];
+                    if (arg->is_addr)
+                        snprintf(buf, sizeof(buf), "hl,%s", arg->sym);
+                    else
+                        snprintf(buf, sizeof(buf), "hl,(%s)", arg->sym);
+                    emit_instr(cc, "ld", buf);
+                    emit_instr(cc, "push", "hl");
+                } else if (arg->kind == VK_HL) {
+                    emit_instr(cc, "push", "hl");
+                } else if (arg->kind == VK_DE) {
+                    emit_instr(cc, "push", "de");
+                } else {
+                    gen_load_bc(cc, arg);
+                    emit_instr(cc, "push", "bc");
+                }
+                vsp--;
+                pushes++;
+            }
+            {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", nargs);
+                emit_instr(cc, "ld", buf);
+            }
+            emit_instr(cc, "call", asmname);
+            if (pushes >= 5) {
+                emit_instr(cc, "ex", "de,hl");
+                char buf[32];
+                snprintf(buf, sizeof(buf), "hl,%d", pushes * 2);
+                emit_instr(cc, "ld", buf);
+                emit_instr(cc, "add", "hl,sp");
+                emit_instr(cc, "ld", "sp,hl");
+                emit_instr(cc, "ex", "de,hl");
+            } else {
+                int q;
+                for (q = 0; q < pushes; q++)
+                    emit_instr(cc, "pop", "bc");
+            }
+        }
+
+    ct_call_done:
+        if (ct_fallback) break;
         /* Register as extrn */
-        int found = 0, j;
-        for (j = 0; j < decl_count; j++)
-            if (strcmp(decl_list[j].name, asmname) == 0) { found = 1; break; }
-        if (!found) decl_add(asmname, 0);
+        {
+            int found = 0, j;
+            for (j = 0; j < decl_count; j++)
+                if (strcmp(decl_list[j].name, asmname) == 0) {
+                    found = 1; break;
+                }
+            if (!found) decl_add(asmname, 0);
+        }
         vpush(VK_HL, NULL, 0, n->type ? n->type : 'N');
         break;
     }
@@ -2555,9 +2788,10 @@ static void ct_emit_node(Cc2State *cc, int idx)
 /* Attempt to emit a single statement from the tree. Returns 1 if
  * successfully emitted, 0 if fallback required. */
 /* Decide whether tree emission is worthwhile for this statement.
- * Current policy: only for CT_ASSIGN with reorder potential (RHS has
- * call, LHS needs HL). Other patterns go straight to streaming which
- * is more mature. As ct_emit_node coverage grows, expand this. */
+ * Policy: only CT_ASSIGN where RHS has a call AND LHS needs HL for
+ * the store (DEREF/SUBSCR/UNARY('). This is the reorder-critical
+ * pattern (e.g. Mass[i] = rand()%K - M). Other cases go to streaming.
+ */
 static int ct_stmt_worth_tree_emit(int stmt_idx)
 {
     if (stmt_idx < 0 || stmt_idx >= ct_stmt_count) return 0;
@@ -2565,21 +2799,22 @@ static int ct_stmt_worth_tree_emit(int stmt_idx)
     if (s->kind != 'e' || s->root < 0) return 0;
 
     CTNode *r = &ct_nodes[s->root];
-    if (r->kind != CT_ASSIGN) return 0;
 
-    /* Check RHS has a call AND LHS needs HL (address computation). */
-    int rhs = r->right;
-    int lhs = r->left;
-    if (rhs < 0 || lhs < 0) return 0;
+    /* Accept: CT_ASSIGN where RHS has call AND LHS needs HL — the
+     * reorder-critical pattern (Mass[i] = rand()%K - M). */
+    if (r->kind == CT_ASSIGN) {
+        int rhs = r->right;
+        int lhs = r->left;
+        if (rhs < 0 || lhs < 0) return 0;
+        if (!ct_subtree_has_call_local(rhs)) return 0;
+        CTNode *ln = &ct_nodes[lhs];
+        if (ln->kind != CT_DEREF && ln->kind != CT_SUBSCR &&
+            !(ln->kind == CT_UNARY && ln->op == '\''))
+            return 0;
+        return 1;
+    }
 
-    if (!ct_subtree_has_call_local(rhs)) return 0;
-
-    CTNode *ln = &ct_nodes[lhs];
-    if (ln->kind != CT_DEREF && ln->kind != CT_SUBSCR &&
-        !(ln->kind == CT_UNARY && ln->op == '\''))
-        return 0;
-
-    return 1;
+    return 0;
 }
 
 static int ct_emit_stmt(Cc2State *cc, int stmt_idx)
@@ -2839,7 +3074,7 @@ static void emit_at_label(Cc2State *cc, int tmc_label)
  *  Symbolic expression evaluator for function call arguments
  *  (used for simple programs: CPRINTF, CPUTS, HELLO)
  * ================================================================ */
-#define MAX_ARGS 16
+#define ICALL_MAX_ARGS 16
 #define ARG_BUF 128
 #define EVAL_STACK_MAX 32
 
@@ -2904,7 +3139,7 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
     char asmname[128];
     make_asm_name(func_name, asmname, sizeof(asmname));
 
-    ExprVal args[MAX_ARGS];
+    ExprVal args[ICALL_MAX_ARGS];
     int nargs = 0;
     int call_type = 0;
     int arg_count = 0;
@@ -2932,7 +3167,7 @@ static void parse_func_call(Cc2State *cc, const char *func_name)
         } else if (ch == 'p') {
             int ptype = tmc_read_char(cc); /* R, I, N, C */
             ExprVal *top = eval_pop();
-            if (top && nargs < MAX_ARGS) {
+            if (top && nargs < ICALL_MAX_ARGS) {
                 args[nargs] = *top;
                 args[nargs].needs_push = 1;
                 /* For value types (I, N, C), dereference global symbols */
