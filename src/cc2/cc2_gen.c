@@ -2321,20 +2321,32 @@ static void ct_emit_node(Cc2State *cc, int idx)
     }
     case CT_CALL: {
         /* Function call — emit directly from tree.
-         * Currently handles: zero-arg calls (CT_CALL with no children).
-         * Args are attached via left/right; for multi-arg we'd need
-         * CT_COMMA walking. Fall back for now if args exist.
+         * Supports:
+         *   0-arg: just 'call func_'
+         *   1-arg: evaluate arg, load into HL, call
+         * Multi-arg: fall back to streaming for now.
          *
-         * Result of call left in HL (convention for int/ptr returns)
-         * or A (for char). We push VK_HL by default. */
-        if (n->left >= 0 || n->right >= 0) {
-            /* Has arguments — delegate to streaming emitter for now */
+         * Result returned in HL (int/ptr) or A (char). Push VK_HL. */
+        char asmname[128];
+        make_asm_name(n->sym, asmname, sizeof(asmname));
+
+        if (n->left < 0 && n->right < 0) {
+            /* Zero-arg */
+            emit_instr(cc, "call", asmname);
+        } else if (n->left >= 0 && n->right < 0) {
+            /* Single arg in .left. Evaluate to HL. */
+            ct_emit_node(cc, n->left);
+            if (ct_fallback) break;
+            VVal *arg = vtop();
+            if (!arg) { ct_fallback = 1; break; }
+            gen_load_hl(cc, arg);
+            vsp--;
+            emit_instr(cc, "call", asmname);
+        } else {
+            /* Multi-arg — not yet supported in tree emitter */
             ct_fallback = 1;
             break;
         }
-        char asmname[128];
-        make_asm_name(n->sym, asmname, sizeof(asmname));
-        emit_instr(cc, "call", asmname);
         /* Register as extrn */
         int found = 0, j;
         for (j = 0; j < decl_count; j++)
@@ -2361,6 +2373,25 @@ static void ct_emit_node(Cc2State *cc, int idx)
         VVal *b = vpop();
         VVal *a = vpop();
         if (!a || !b) { ct_fallback = 1; break; }
+
+        /* Constant folding first */
+        if (a->kind == VK_IMM && b->kind == VK_IMM) {
+            int result = 0;
+            int ok = 1;
+            switch (op) {
+            case '+': result = a->value + b->value; break;
+            case '-': result = a->value - b->value; break;
+            case '*': result = a->value * b->value; break;
+            case '&': result = a->value & b->value; break;
+            case '|': result = a->value | b->value; break;
+            case '^': result = a->value ^ b->value; break;
+            default: ok = 0; break;
+            }
+            if (ok) {
+                vpush(VK_IMM, NULL, result & 0xFFFF, type);
+                break;
+            }
+        }
 
         if (op == '%' && type == 'I' && b->kind == VK_IMM &&
             a->kind == VK_HL) {
@@ -2398,6 +2429,58 @@ static void ct_emit_node(Cc2State *cc, int idx)
             emit_instr(cc, "ld", buf);
             emit_instr(cc, "add", "hl,de");
             vpush(VK_HL, NULL, 0, type);
+        } else {
+            ct_fallback = 1;
+        }
+        break;
+    }
+    case CT_CAST: {
+        /* Type conversion NC/CN/NI/IN/CI/IC.
+         * n->op = source type, n->type = dest type.
+         * Rules (from gen_expr_stmt's handler):
+         *  N↔I: no-op (same size, just relabel)
+         *  C→N/I (widen): load byte into HL low, zero-extend high
+         *  N/I→C (narrow): take low byte into A */
+        ct_emit_node(cc, n->left);
+        if (ct_fallback) break;
+        char from = (char)n->op;
+        char to = n->type;
+        VVal *top = vtop();
+        if (!top) { ct_fallback = 1; break; }
+        if (top->kind == VK_IMM) {
+            top->type = to;  /* just relabel */
+        } else if (from == to || (from == 'N' && to == 'I') ||
+                   (from == 'I' && to == 'N')) {
+            /* no-op or same-size relabel */
+            top->type = to;
+        } else if ((from == 'C' && to == 'N') || (from == 'C' && to == 'I')) {
+            /* widen char → int */
+            if (top->kind == VK_ADDR_HL && top->type == 'C') {
+                vsp--;
+                emit_instr(cc, "ld", "l,(hl)");
+                emit_instr(cc, "ld", "h,0");
+                vpush(VK_HL, NULL, 0, to);
+            } else if (top->kind == VK_A) {
+                vsp--;
+                emit_instr(cc, "ld", "l,a");
+                emit_instr(cc, "ld", "h,0");
+                vpush(VK_HL, NULL, 0, to);
+            } else {
+                ct_fallback = 1;
+            }
+        } else if ((from == 'N' && to == 'C') || (from == 'I' && to == 'C')) {
+            /* narrow int → char */
+            if (top->kind == VK_HL) {
+                vsp--;
+                emit_instr(cc, "ld", "a,l");
+                vpush(VK_A, NULL, 0, 'C');
+            } else if (top->kind == VK_ADDR_HL) {
+                vsp--;
+                emit_instr(cc, "ld", "a,(hl)");
+                vpush(VK_A, NULL, 0, 'C');
+            } else {
+                ct_fallback = 1;
+            }
         } else {
             ct_fallback = 1;
         }
