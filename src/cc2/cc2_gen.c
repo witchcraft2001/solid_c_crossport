@@ -1582,6 +1582,52 @@ static void peephole_optimize(void)
                 }
             }
 
+            /* push af / <no-A-no-F instr> / pop af → <instr>
+             * The push/pop wraps a middle instruction that doesn't touch
+             * A or flags. Our `+C` char add emits this defensively, but
+             * for simple memory/register loads it's unnecessary.
+             * Safe middle: ld <non-A-reg>,(hl|ix±N|de) or similar. */
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "push\taf") == 0 &&
+                strcmp(c->text, "pop\taf") == 0) {
+                const char *m = b->text;
+                int harmless = 0;
+                /* ld <R>,<src> where R is b/c/d/e/h/l (NOT a) and src
+                 * doesn't reference a. Simple loads from mem/reg only. */
+                if (strncmp(m, "ld\t", 3) == 0 &&
+                    m[3] != 'a' && m[3] != '(' &&
+                    m[4] == ',' &&
+                    m[3] >= 'b' && m[3] <= 'l') {
+                    /* Src after comma must not include 'a' as register */
+                    const char *src = m + 5;
+                    /* Accept if src starts with '(' (memory) or digit/-/number,
+                     * or register letter (b/c/d/e/h/l) — no 'a' anywhere */
+                    int has_a = 0;
+                    for (const char *p = src; *p; p++)
+                        if (*p == 'a') { has_a = 1; break; }
+                    if (!has_a) harmless = 1;
+                }
+                /* Also ld <RR>,<src> for 16-bit pairs (de, bc, hl) */
+                if (!harmless && strncmp(m, "ld\t", 3) == 0) {
+                    if ((strncmp(m + 3, "de,", 3) == 0 ||
+                         strncmp(m + 3, "bc,", 3) == 0 ||
+                         strncmp(m + 3, "hl,", 3) == 0) &&
+                        strchr(m + 6, 'a') == NULL)
+                        harmless = 1;
+                }
+                if (harmless) {
+                    /* Remove a and c (keep b) */
+                    /* Shift: replace a with b, then remove one. */
+                    instr_list[i] = *b;
+                    for (j = i + 1; j < instr_count - 2; j++)
+                        instr_list[j] = instr_list[j + 2];
+                    instr_count -= 2;
+                    i--;
+                    continue;
+                }
+            }
+
             /* Dead-load pair: ld l,(ix±N) / ld h,(ix±M) / ld l,<R1> / ld h,<R2>
              * → ld l,<R1> / ld h,<R2> (the frame loads are overwritten). */
             if (i + 3 < instr_count) {
