@@ -922,6 +922,21 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* Unreachable code after unconditional jump:
+         *   jp X (no comma) / <INST not label> → remove second.
+         * After unconditional jp, any following instruction is dead
+         * until a label appears. Removes redundant jp/ret sequences. */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "jp\t", 3) == 0 &&
+            strchr(a->text + 3, ',') == NULL) {
+            for (j = i + 1; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            /* Re-check this position for another dead instruction */
+            i--;
+            continue;
+        }
+
         /* jp @N / @N: → remove jp (jump to next instruction) */
         if (a->type == INSTR_INST && b->type == INSTR_LABEL) {
             /* Check if jp targets the next label */
