@@ -829,6 +829,37 @@ static void peephole_optimize(void)
             }
         }
 
+        /* @N: / @M: → coalesce: rewrite all refs of @M to @N, then
+         * the dead-label pass will remove @M. Both labels are at the
+         * same instruction so this is semantics-preserving. */
+        if (a->type == INSTR_LABEL && b->type == INSTR_LABEL) {
+            int k;
+            const char *from = b->text;
+            const char *to = a->text;
+            size_t flen = strlen(from);
+            for (k = 0; k < instr_count; k++) {
+                Instr *ins = &instr_list[k];
+                if (ins->type != INSTR_INST) continue;
+                char *p = strstr(ins->text, from);
+                if (!p) continue;
+                char prev = (p > ins->text) ? p[-1] : ' ';
+                char next = p[flen];
+                if ((prev == ',' || prev == '\t' || prev == ' ') &&
+                    (next == '\0' || next == ' ' || next == '\t' ||
+                     next == ',' || next == '\n')) {
+                    char suffix[INSTR_BUF];
+                    snprintf(suffix, sizeof(suffix), "%s", p + flen);
+                    *p = '\0';
+                    char newbuf[INSTR_BUF];
+                    snprintf(newbuf, sizeof(newbuf), "%s%s%s",
+                             ins->text, to, suffix);
+                    snprintf(ins->text, INSTR_BUF, "%s", newbuf);
+                }
+            }
+            /* Next iteration's dead-label pass will remove b (@M:)
+             * since all refs now point to a (@N:). */
+        }
+
         /* Dead @N: followed by ANY instruction: if @N is never
          * referenced by a jp/call/etc, the label is dead weight.
          * More general than the LABEL/LABEL variant above. */
