@@ -1548,6 +1548,34 @@ static void peephole_optimize(void)
                     }
                 }
             }
+
+            /* Dead-load pair: ld l,(ix±N) / ld h,(ix±M) / ld l,<R1> / ld h,<R2>
+             * → ld l,<R1> / ld h,<R2> (the frame loads are overwritten). */
+            if (i + 3 < instr_count) {
+                Instr *d = &instr_list[i + 3];
+                if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                    c->type == INSTR_INST && d->type == INSTR_INST &&
+                    strncmp(a->text, "ld\tl,(ix", 8) == 0 &&
+                    strncmp(b->text, "ld\th,(ix", 8) == 0 &&
+                    strncmp(c->text, "ld\tl,", 5) == 0 &&
+                    c->text[5] != '(' &&
+                    c->text[6] == '\0' &&
+                    strncmp(d->text, "ld\th,", 5) == 0 &&
+                    d->text[5] != '(' &&
+                    d->text[6] == '\0') {
+                    /* Source registers must not be h or l (self-ref) */
+                    char r1 = c->text[5];
+                    char r2 = d->text[5];
+                    if (r1 != 'h' && r1 != 'l' && r2 != 'h' && r2 != 'l') {
+                        /* Remove a and b (the dead loads) */
+                        for (j = i; j < instr_count - 2; j++)
+                            instr_list[j] = instr_list[j + 2];
+                        instr_count -= 2;
+                        i--;
+                        continue;
+                    }
+                }
+            }
         }
     }
 }
