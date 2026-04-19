@@ -1459,6 +1459,69 @@ static void peephole_optimize(void)
                 }
             }
 
+            /* 4-instruction: ld hl,SYM / ld (hl),L / inc hl / ld (hl),H →
+             * ld hl,<H*256+L> / ld (SYM),hl
+             * Matches ref pattern for 16-bit constant stores to globals
+             * (LZH3: `freq[627]=0xFFFF` emits `ld hl,65535 / ld (freq_+1254),hl`).
+             * Safety: next instruction must not use HL's post-state (SYM+1)
+             * since we replace it with a different value. */
+            if (i + 3 < instr_count) {
+                Instr *d = &instr_list[i + 3];
+                if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                    c->type == INSTR_INST && d->type == INSTR_INST &&
+                    strncmp(a->text, "ld\thl,", 6) == 0 &&
+                    strncmp(b->text, "ld\t(hl),", 8) == 0 &&
+                    strcmp(c->text, "inc\thl") == 0 &&
+                    strncmp(d->text, "ld\t(hl),", 8) == 0) {
+                    const char *sym = a->text + 6;
+                    const char *lval = b->text + 8;
+                    const char *hval = d->text + 8;
+                    int sym_ok = ((*sym >= 'a' && *sym <= 'z') ||
+                                  (*sym >= 'A' && *sym <= 'Z') || *sym == '_');
+                    int lval_ok = (*lval == '-' || (*lval >= '0' && *lval <= '9'));
+                    int hval_ok = (*hval == '-' || (*hval >= '0' && *hval <= '9'));
+                    if (sym_ok && lval_ok && hval_ok) {
+                        int lo = atoi(lval) & 0xFF;
+                        int hi = atoi(hval) & 0xFF;
+                        int combined = (hi << 8) | lo;
+                        /* Safety: next (i+4) must not use HL. Treat
+                         * `ld hl,X` (no self-ref) as safe (writes HL). */
+                        int unsafe = 0;
+                        if (i + 4 < instr_count) {
+                            Instr *e = &instr_list[i + 4];
+                            if (e->type == INSTR_INST) {
+                                const char *t = e->text;
+                                int ld_hl_imm =
+                                    (strncmp(t, "ld\thl,", 6) == 0 &&
+                                     strstr(t + 6, "hl") == NULL);
+                                if (!ld_hl_imm) {
+                                    if (strstr(t, "hl") || strstr(t, "(hl)"))
+                                        unsafe = 1;
+                                }
+                            }
+                        }
+                        if (!unsafe) {
+                            char symbuf[INSTR_BUF];
+                            snprintf(symbuf, sizeof(symbuf), "%s", sym);
+                            size_t slen = strlen(symbuf);
+                            if (slen >= 2 && symbuf[slen-2] == '+' &&
+                                symbuf[slen-1] == '0')
+                                symbuf[slen-2] = '\0';
+                            snprintf(a->text, INSTR_BUF,
+                                     "ld\thl,%d", combined);
+                            snprintf(b->text, INSTR_BUF,
+                                     "ld\t(%s),hl", symbuf);
+                            /* Remove c (inc hl) and d (ld (hl),H) */
+                            for (j = i + 2; j < instr_count - 2; j++)
+                                instr_list[j] = instr_list[j + 2];
+                            instr_count -= 2;
+                            i--;
+                            continue;
+                        }
+                    }
+                }
+            }
+
             /* 4-instruction: store+reload elimination
              * ld (ix+N),l / ld (ix+M),h / ld l,(ix+N) / ld h,(ix+M) →
              * ld (ix+N),l / ld (ix+M),h (remove redundant reload) */
