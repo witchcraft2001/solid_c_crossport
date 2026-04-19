@@ -2227,8 +2227,16 @@ static int ct_arg_is_simple(int idx)
     case CT_STRING:
         return 1;
     case CT_UNARY:
-        if (n->op == 'a') return ct_arg_is_simple(n->left);
+        /* Address-of and type-marker '@' over a simple operand are safe
+         * (no emission, just metadata). Other unary ops emit code. */
+        if (n->op == 'a' || n->op == '@')
+            return ct_arg_is_simple(n->left);
         return 0;
+    case CT_CAST:
+        /* Type cast over simple operand is safe (IMM just relabels; CC/NN
+         * no-op; only C↔N/I widen/narrow over register values emit code,
+         * and simple operands aren't in registers when evaluated). */
+        return ct_arg_is_simple(n->left);
     default:
         return 0;
     }
