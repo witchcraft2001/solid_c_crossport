@@ -1331,6 +1331,59 @@ static void peephole_optimize(void)
                 }
             }
 
+            /* Constant-condition fold:
+             *   ld hl,<const> / ld a,l / or h / jp <cond>,@X
+             * The (l OR h) test is 0 iff HL == 0. Fold based on const.
+             * Handles boolean short-circuits like while(1). */
+            if (i + 3 < instr_count) {
+                Instr *d4 = &instr_list[i + 3];
+                if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                    c->type == INSTR_INST && d4->type == INSTR_INST &&
+                    strncmp(a->text, "ld\thl,", 6) == 0 &&
+                    strcmp(b->text, "ld\ta,l") == 0 &&
+                    strcmp(c->text, "or\th") == 0 &&
+                    strncmp(d4->text, "jp\t", 3) == 0) {
+                    const char *val_str = a->text + 6;
+                    if (*val_str >= '0' && *val_str <= '9') {
+                        int val = atoi(val_str);
+                        const char *cond_body = d4->text + 3;
+                        const char *comma = strchr(cond_body, ',');
+                        if (comma) {
+                            char cond[8];
+                            int clen = comma - cond_body;
+                            if (clen > 0 && clen < (int)sizeof(cond)) {
+                                memcpy(cond, cond_body, clen);
+                                cond[clen] = '\0';
+                                const char *target = comma + 1;
+                                int always_taken = -1;
+                                if (strcmp(cond, "nz") == 0)
+                                    always_taken = (val != 0);
+                                else if (strcmp(cond, "z") == 0)
+                                    always_taken = (val == 0);
+                                if (always_taken == 1) {
+                                    /* Fold to unconditional jp; remove b/c/d4 */
+                                    char newjp[INSTR_BUF];
+                                    snprintf(newjp, sizeof(newjp), "jp\t%s", target);
+                                    snprintf(a->text, INSTR_BUF, "%s", newjp);
+                                    for (j = i + 1; j < instr_count - 3; j++)
+                                        instr_list[j] = instr_list[j + 3];
+                                    instr_count -= 3;
+                                    i--;
+                                    continue;
+                                } else if (always_taken == 0) {
+                                    /* Remove all 4 */
+                                    for (j = i; j < instr_count - 4; j++)
+                                        instr_list[j] = instr_list[j + 4];
+                                    instr_count -= 4;
+                                    i--;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             /* 4-instruction: store+reload elimination
              * ld (ix+N),l / ld (ix+M),h / ld l,(ix+N) / ld h,(ix+M) →
              * ld (ix+N),l / ld (ix+M),h (remove redundant reload) */
