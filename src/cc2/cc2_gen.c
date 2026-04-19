@@ -937,6 +937,28 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* push hl / ld hl,X / pop de → ex de,hl / ld hl,X
+         * Both result in DE = old HL, HL = X; the alt uses only 2
+         * instructions and no stack traffic. Must guard: X must not
+         * use DE (otherwise we'd change its initial value). */
+        if (i + 2 < instr_count) {
+            Instr *c = &instr_list[i + 2];
+            if (a->type == INSTR_INST && b->type == INSTR_INST &&
+                c->type == INSTR_INST &&
+                strcmp(a->text, "push\thl") == 0 &&
+                strncmp(b->text, "ld\thl,", 6) == 0 &&
+                strstr(b->text + 6, "de") == NULL &&
+                strstr(b->text + 6, "(de)") == NULL &&
+                strcmp(c->text, "pop\tde") == 0) {
+                snprintf(a->text, INSTR_BUF, "ex\tde,hl");
+                /* Remove c (pop de) */
+                for (j = i + 2; j < instr_count - 1; j++)
+                    instr_list[j] = instr_list[j + 1];
+                instr_count--;
+                continue;
+            }
+        }
+
         /* Unreachable code after unconditional jump:
          *   jp X (no comma) / <INST not label> → remove second.
          * After unconditional jp, any following instruction is dead
