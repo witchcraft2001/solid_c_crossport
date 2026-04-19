@@ -910,6 +910,18 @@ static void peephole_optimize(void)
             continue;
         }
 
+        /* ld a,X / ld a,Y → remove first (dead load; second overwrites).
+         * Safe because consecutive loads to same reg with no use between. */
+        if (a->type == INSTR_INST && b->type == INSTR_INST &&
+            strncmp(a->text, "ld\ta,", 5) == 0 &&
+            strncmp(b->text, "ld\ta,", 5) == 0) {
+            for (j = i; j < instr_count - 1; j++)
+                instr_list[j] = instr_list[j + 1];
+            instr_count--;
+            i--;
+            continue;
+        }
+
         /* jp @N / @N: → remove jp (jump to next instruction) */
         if (a->type == INSTR_INST && b->type == INSTR_LABEL) {
             /* Check if jp targets the next label */
